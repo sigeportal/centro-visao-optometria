@@ -1,0 +1,4 @@
+interface:
+  display_name: "Clinica Pacientes"
+  short_description: "Cadastro e prontuario de pacientes."
+  default_prompt: "Use esta skill para implementar pacientes, cadastro, pesquisa e abas do prontuario."

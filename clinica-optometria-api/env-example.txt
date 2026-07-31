@@ -1,0 +1,7 @@
+PORT=9000
+JWT_SECRET=dev-secret
+DB_HOST=127.0.0.1
+DB_PORT=3050
+DB_NAME=C:\dados\clinica_optometria.fdb
+DB_USER=SYSDBA
+DB_PASS=masterkey

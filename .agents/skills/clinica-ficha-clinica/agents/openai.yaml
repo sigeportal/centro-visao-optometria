@@ -1,0 +1,4 @@
+interface:
+  display_name: "Clinica Ficha Clinica"
+  short_description: "Configuracao da ficha clinica."
+  default_prompt: "Use esta skill para implementar configuracao dinamica da ficha clinica."

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Clinica Agenda"
+  short_description: "Agenda e fluxo de agendamentos."
+  default_prompt: "Use esta skill para implementar agenda, novo agendamento e detalhes de agendamento."

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Clinica Consultas"
+  short_description: "Consulta, anamnese e prescricao."
+  default_prompt: "Use esta skill para implementar consultas, anamnese, prescricoes, documentos e impressao."
