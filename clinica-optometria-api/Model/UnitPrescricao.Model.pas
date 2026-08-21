@@ -13,6 +13,7 @@ type
     FId: Integer;
     FConsultaId: Integer;
     FTitulo: string;
+    FModo: string;
     FODEsferico: string;
     FODCilindrico: string;
     FODEixo: string;
@@ -25,6 +26,18 @@ type
     FOEAv: string;
     FOEPrisma: string;
     FOEDnp: string;
+    FODPertoEsferico: string;
+    FODPertoCilindrico: string;
+    FODPertoEixo: string;
+    FODPertoAv: string;
+    FODPertoPrisma: string;
+    FODPertoDnp: string;
+    FOEPertoEsferico: string;
+    FOEPertoCilindrico: string;
+    FOEPertoEixo: string;
+    FOEPertoAv: string;
+    FOEPertoPrisma: string;
+    FOEPertoDnp: string;
     FAdicao: string;
     FLente: string;
     FRetorno: TDateTime;
@@ -39,6 +52,9 @@ type
 
     [TCampo('REC_TITULO', 'VARCHAR(120)')]
     property Titulo: string read FTitulo write FTitulo;
+
+    [TCampo('REC_MODO', 'VARCHAR(20)')]
+    property Modo: string read FModo write FModo;
 
     [TCampo('REC_OD_ESFERICO', 'VARCHAR(20)')]
     property ODEsferico: string read FODEsferico write FODEsferico;
@@ -75,6 +91,42 @@ type
 
     [TCampo('REC_OE_DNP', 'VARCHAR(20)')]
     property OEDnp: string read FOEDnp write FOEDnp;
+
+    [TCampo('REC_OD_PERTO_ESFERICO', 'VARCHAR(20)')]
+    property ODPertoEsferico: string read FODPertoEsferico write FODPertoEsferico;
+
+    [TCampo('REC_OD_PERTO_CILINDRICO', 'VARCHAR(20)')]
+    property ODPertoCilindrico: string read FODPertoCilindrico write FODPertoCilindrico;
+
+    [TCampo('REC_OD_PERTO_EIXO', 'VARCHAR(20)')]
+    property ODPertoEixo: string read FODPertoEixo write FODPertoEixo;
+
+    [TCampo('REC_OD_PERTO_AV', 'VARCHAR(20)')]
+    property ODPertoAv: string read FODPertoAv write FODPertoAv;
+
+    [TCampo('REC_OD_PERTO_PRISMA', 'VARCHAR(20)')]
+    property ODPertoPrisma: string read FODPertoPrisma write FODPertoPrisma;
+
+    [TCampo('REC_OD_PERTO_DNP', 'VARCHAR(20)')]
+    property ODPertoDnp: string read FODPertoDnp write FODPertoDnp;
+
+    [TCampo('REC_OE_PERTO_ESFERICO', 'VARCHAR(20)')]
+    property OEPertoEsferico: string read FOEPertoEsferico write FOEPertoEsferico;
+
+    [TCampo('REC_OE_PERTO_CILINDRICO', 'VARCHAR(20)')]
+    property OEPertoCilindrico: string read FOEPertoCilindrico write FOEPertoCilindrico;
+
+    [TCampo('REC_OE_PERTO_EIXO', 'VARCHAR(20)')]
+    property OEPertoEixo: string read FOEPertoEixo write FOEPertoEixo;
+
+    [TCampo('REC_OE_PERTO_AV', 'VARCHAR(20)')]
+    property OEPertoAv: string read FOEPertoAv write FOEPertoAv;
+
+    [TCampo('REC_OE_PERTO_PRISMA', 'VARCHAR(20)')]
+    property OEPertoPrisma: string read FOEPertoPrisma write FOEPertoPrisma;
+
+    [TCampo('REC_OE_PERTO_DNP', 'VARCHAR(20)')]
+    property OEPertoDnp: string read FOEPertoDnp write FOEPertoDnp;
 
     [TCampo('REC_ADICAO', 'VARCHAR(20)')]
     property Adicao: string read FAdicao write FAdicao;

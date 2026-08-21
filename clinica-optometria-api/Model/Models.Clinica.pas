@@ -9,6 +9,7 @@ uses
   UnitAnamnese.Model,
   UnitPrescricao.Model,
   UnitFichaSecao.Model,
+  UnitFichaClinicaDados.Model,
   UnitFinanceiroLancamento.Model,
   UnitDocumentoConsulta.Model;
 
@@ -19,6 +20,7 @@ type
   TModelAnamnese = UnitAnamnese.Model.TModelAnamnese;
   TModelPrescricao = UnitPrescricao.Model.TModelPrescricao;
   TModelFichaSecao = UnitFichaSecao.Model.TModelFichaSecao;
+  TModelFichaClinicaDados = UnitFichaClinicaDados.Model.TModelFichaClinicaDados;
   TModelFinanceiroLancamento = UnitFinanceiroLancamento.Model.TModelFinanceiroLancamento;
   TModelDocumentoConsulta = UnitDocumentoConsulta.Model.TModelDocumentoConsulta;
 

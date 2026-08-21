@@ -13,12 +13,17 @@ type
   TAgendaService = class
   private
     procedure GarantirTabelas;
+    procedure MigrarStatusFilaEspera;
     procedure ValidarHorario(const AInicio, AFim: TDateTime);
     procedure ValidarStatus(const AStatus: string);
     procedure ValidarPacienteAtivo(APacienteId: Integer);
+    function ObterProfissionalAtivo(AProfissionalId: Integer): string;
+    function ObterProcedimentoAtivo(AProcedimentoId: Integer): string;
+    procedure ValidarParceriaAtiva(AParceriaId: Integer);
     procedure ValidarConflito(AIdIgnorar, AProfissionalId: Integer; const AProfissional: string; const AInicio, AFim: TDateTime);
     function BuscarAgendamento(AId: Integer): TModelAgendamento;
     function NormalizarStatus(const AStatus: string): string;
+    function TransicaoStatusPermitida(const AAtual, ANovo: string): Boolean;
   public
     function Listar(const AInicio, AFim, AProfissionalId, AStatus: string): TJSONArray;
     function ObterPorId(AId: Integer): TJSONObject;
@@ -27,6 +32,9 @@ type
     procedure AlterarStatus(AId: Integer; const AStatus: string);
     procedure Cancelar(AId: Integer);
     function ListarFilaEspera: TJSONArray;
+    function ListarProfissionais: TJSONArray;
+    function ListarParcerias: TJSONArray;
+    function ListarProcedimentos: TJSONArray;
     function LancarPagamento(AId: Integer; AData: TJSONObject): TJSONObject;
   end;
 
@@ -37,7 +45,9 @@ uses
   System.StrUtils,
   FireDAC.Comp.Client,
   UnitDatabase,
-  Dataset.JSON.Utils;
+  Dataset.JSON.Utils,
+  Parceria.Service,
+  Procedimento.Service;
 
 function JsonString(AData: TJSONObject; const AName, ADefault: string): string;
 var
@@ -107,6 +117,44 @@ begin
   finally
     LFinanceiro.Free;
   end;
+
+  MigrarStatusFilaEspera;
+end;
+
+procedure TAgendaService.MigrarStatusFilaEspera;
+var
+  LIndiceConexao: Integer;
+  LConn: TFDConnection;
+  LQuery: TFDQuery;
+  LIniciouTransacao: Boolean;
+begin
+  LIndiceConexao := TDatabase.Connection.Connected;
+  try
+    LConn := TFDConnection(TDatabase.Connection.GetListaConexoes[LIndiceConexao]);
+    LQuery := TFDQuery.Create(nil);
+    try
+      LQuery.Connection := LConn;
+      LIniciouTransacao := not LConn.InTransaction;
+      if LIniciouTransacao then
+        LConn.StartTransaction;
+      try
+        LQuery.SQL.Text :=
+          'UPDATE AGENDAMENTOS SET AGD_STATUS = ''fila_espera'' ' +
+          'WHERE LOWER(TRIM(AGD_STATUS)) = ''aguardando_atendimento''';
+        LQuery.ExecSQL;
+        if LIniciouTransacao then
+          LConn.Commit;
+      except
+        if LIniciouTransacao and LConn.InTransaction then
+          LConn.Rollback;
+        raise;
+      end;
+    finally
+      LQuery.Free;
+    end;
+  finally
+    TDatabase.Connection.Disconnected(LIndiceConexao);
+  end;
 end;
 
 procedure TAgendaService.ValidarHorario(const AInicio, AFim: TDateTime);
@@ -125,15 +173,43 @@ begin
   if Result = 'confirmado' then
     Result := 'confirmada';
   if Result = 'realizado' then
-    Result := 'atendida';
+    Result := 'realizada';
   if Result = 'cancelado' then
     Result := 'cancelada';
+  if Result = 'aguardando_atendimento' then
+    Result := 'fila_espera';
 end;
 
 procedure TAgendaService.ValidarStatus(const AStatus: string);
 begin
-  if not MatchText(NormalizarStatus(AStatus), ['agendada', 'confirmada', 'atendida', 'cancelada', 'faltou', 'fila_espera']) then
+  if not MatchText(NormalizarStatus(AStatus), [
+    'fila_espera', 'agendada', 'confirmada', 'em_atendimento',
+    'realizada', 'atendida', 'cancelada', 'faltou'
+  ]) then
     raise EAgendaValidacao.Create('Status invalido para agendamento');
+end;
+
+function TAgendaService.TransicaoStatusPermitida(const AAtual, ANovo: string): Boolean;
+var
+  LAtual: string;
+  LNovo: string;
+begin
+  LAtual := NormalizarStatus(AAtual);
+  LNovo := NormalizarStatus(ANovo);
+
+  if LAtual = LNovo then
+    Exit(True);
+
+  if LAtual = 'fila_espera' then
+    Exit(LNovo = 'agendada');
+
+  if LAtual = 'agendada' then
+    Exit(MatchText(LNovo, ['confirmada', 'fila_espera', 'cancelada', 'faltou']));
+
+  if LAtual = 'confirmada' then
+    Exit(MatchText(LNovo, ['fila_espera', 'cancelada', 'faltou']));
+
+  Result := False;
 end;
 
 procedure TAgendaService.ValidarPacienteAtivo(APacienteId: Integer);
@@ -150,6 +226,98 @@ begin
       raise EAgendaValidacao.Create('Paciente ativo e obrigatorio para agendar');
   finally
     LPaciente.Free;
+  end;
+end;
+
+function TAgendaService.ObterProfissionalAtivo(AProfissionalId: Integer): string;
+var
+  LIndiceConexao: Integer;
+  LConn: TFDConnection;
+  LQuery: TFDQuery;
+begin
+  if AProfissionalId <= 0 then
+    raise EAgendaValidacao.Create('Profissional e obrigatorio');
+
+  Result := '';
+  LIndiceConexao := TDatabase.Connection.Connected;
+  try
+    LConn := TFDConnection(TDatabase.Connection.GetListaConexoes[LIndiceConexao]);
+    LQuery := TFDQuery.Create(nil);
+    try
+      LQuery.Connection := LConn;
+      LQuery.SQL.Text :=
+        'SELECT FUN_NOME FROM FUNCIONARIOS ' +
+        'WHERE FUN_CODIGO = :ID AND UPPER(TRIM(COALESCE(FUN_ESTADO, ''''))) = ''ATIVO'' ' +
+        'AND COALESCE(FUN_ATENDE, 0) = 1';
+      LQuery.ParamByName('ID').AsInteger := AProfissionalId;
+      LQuery.Open;
+      if LQuery.IsEmpty then
+        raise EAgendaValidacao.Create('Profissional ativo e habilitado para atendimento nao encontrado');
+      Result := Trim(LQuery.FieldByName('FUN_NOME').AsString);
+    finally
+      LQuery.Free;
+    end;
+  finally
+    TDatabase.Connection.Disconnected(LIndiceConexao);
+  end;
+end;
+
+function TAgendaService.ObterProcedimentoAtivo(
+  AProcedimentoId: Integer): string;
+var
+  LIndiceConexao: Integer;
+  LConn: TFDConnection;
+  LQuery: TFDQuery;
+begin
+  if AProcedimentoId <= 0 then
+    raise EAgendaValidacao.Create('Procedimento e obrigatorio');
+  Result := '';
+  LIndiceConexao := TDatabase.Connection.Connected;
+  try
+    LConn := TFDConnection(TDatabase.Connection.GetListaConexoes[LIndiceConexao]);
+    LQuery := TFDQuery.Create(nil);
+    try
+      LQuery.Connection := LConn;
+      LQuery.SQL.Text := 'SELECT PRO_NOME FROM PROCEDIMENTOS ' +
+        'WHERE PRO_ID = :ID AND PRO_ATIVO = 1';
+      LQuery.ParamByName('ID').AsInteger := AProcedimentoId;
+      LQuery.Open;
+      if LQuery.IsEmpty then
+        raise EAgendaValidacao.Create('Procedimento ativo nao encontrado');
+      Result := Trim(LQuery.FieldByName('PRO_NOME').AsString);
+    finally
+      LQuery.Free;
+    end;
+  finally
+    TDatabase.Connection.Disconnected(LIndiceConexao);
+  end;
+end;
+
+procedure TAgendaService.ValidarParceriaAtiva(AParceriaId: Integer);
+var
+  LIndiceConexao: Integer;
+  LConn: TFDConnection;
+  LQuery: TFDQuery;
+begin
+  if AParceriaId <= 0 then
+    Exit;
+  LIndiceConexao := TDatabase.Connection.Connected;
+  try
+    LConn := TFDConnection(TDatabase.Connection.GetListaConexoes[LIndiceConexao]);
+    LQuery := TFDQuery.Create(nil);
+    try
+      LQuery.Connection := LConn;
+      LQuery.SQL.Text := 'SELECT PAR_ID FROM PARCERIAS ' +
+        'WHERE PAR_ID = :ID AND PAR_ATIVO = 1';
+      LQuery.ParamByName('ID').AsInteger := AParceriaId;
+      LQuery.Open;
+      if LQuery.IsEmpty then
+        raise EAgendaValidacao.Create('Parceria ativa nao encontrada');
+    finally
+      LQuery.Free;
+    end;
+  finally
+    TDatabase.Connection.Disconnected(LIndiceConexao);
   end;
 end;
 
@@ -232,10 +400,11 @@ begin
         'A.AGD_PROFISSIONAL_ID AS PROFISSIONAL_ID, A.AGD_PROFISSIONAL AS PROFISSIONAL, ' +
         'A.AGD_PROCEDIMENTO_ID AS PROCEDIMENTO_ID, A.AGD_PROCEDIMENTO AS PROCEDIMENTO, ' +
         'A.AGD_INICIO AS INICIO, A.AGD_FIM AS FIM, A.AGD_STATUS AS STATUS, ' +
-        'A.AGD_PRIORIDADE AS PRIORIDADE, A.AGD_PARCERIA_ID AS PARCERIA_ID, ' +
+        'A.AGD_PRIORIDADE AS PRIORIDADE, A.AGD_PARCERIA_ID AS PARCERIA_ID, PA.PAR_NOME AS PARCERIA, ' +
         'A.AGD_OBSERVACAO AS OBSERVACAO, A.AGD_CRIADO_EM AS CRIADO_EM, A.AGD_CRIADO_POR AS CRIADO_POR ' +
         'FROM AGENDAMENTOS A ' +
         'JOIN PACIENTES P ON P.PAC_ID = A.AGD_PACIENTE_ID ' +
+        'LEFT JOIN PARCERIAS PA ON PA.PAR_ID = A.AGD_PARCERIA_ID ' +
         LWhere +
         'ORDER BY A.AGD_INICIO';
 
@@ -280,10 +449,11 @@ begin
         'A.AGD_PROFISSIONAL_ID AS PROFISSIONAL_ID, A.AGD_PROFISSIONAL AS PROFISSIONAL, ' +
         'A.AGD_PROCEDIMENTO_ID AS PROCEDIMENTO_ID, A.AGD_PROCEDIMENTO AS PROCEDIMENTO, ' +
         'A.AGD_INICIO AS INICIO, A.AGD_FIM AS FIM, A.AGD_STATUS AS STATUS, ' +
-        'A.AGD_PRIORIDADE AS PRIORIDADE, A.AGD_PARCERIA_ID AS PARCERIA_ID, ' +
+        'A.AGD_PRIORIDADE AS PRIORIDADE, A.AGD_PARCERIA_ID AS PARCERIA_ID, PA.PAR_NOME AS PARCERIA, ' +
         'A.AGD_OBSERVACAO AS OBSERVACAO, A.AGD_CRIADO_EM AS CRIADO_EM, A.AGD_CRIADO_POR AS CRIADO_POR ' +
         'FROM AGENDAMENTOS A ' +
         'JOIN PACIENTES P ON P.PAC_ID = A.AGD_PACIENTE_ID ' +
+        'LEFT JOIN PARCERIAS PA ON PA.PAR_ID = A.AGD_PARCERIA_ID ' +
         'WHERE A.AGD_ID = :ID';
       LQuery.ParamByName('ID').AsInteger := AId;
       LQuery.Open;
@@ -310,18 +480,22 @@ end;
 function TAgendaService.Criar(AData: TJSONObject): Integer;
 var
   LAgendamento: TModelAgendamento;
-  LPacienteId, LProfissionalId: Integer;
-  LProfissional, LData, LHoraInicio, LHoraFim, LStatus: string;
+  LPacienteId, LProfissionalId, LProcedimentoId, LParceriaId: Integer;
+  LProfissional, LProcedimento, LData, LHoraInicio, LHoraFim, LStatus: string;
   LInicio, LFim: TDateTime;
 begin
   GarantirTabelas;
   LPacienteId := JsonInteger(AData, 'paciente_id', 0);
   LProfissionalId := JsonInteger(AData, 'profissional_id', 0);
-  LProfissional := Trim(JsonString(AData, 'profissional', ''));
+  LProfissional := ObterProfissionalAtivo(LProfissionalId);
+  LProcedimentoId := JsonInteger(AData, 'procedimento_id', 0);
+  LProcedimento := ObterProcedimentoAtivo(LProcedimentoId);
+  LParceriaId := JsonInteger(AData, 'parceria_id', 0);
+  ValidarParceriaAtiva(LParceriaId);
   LStatus := NormalizarStatus(JsonString(AData, 'status', 'agendada'));
 
-  if (LProfissionalId <= 0) and (LProfissional = '') then
-    raise EAgendaValidacao.Create('Profissional e obrigatorio');
+  if not MatchText(LStatus, ['fila_espera', 'agendada']) then
+    raise EAgendaValidacao.Create('Novo agendamento deve iniciar como agendada ou fila de espera');
 
   LData := JsonString(AData, 'data', '');
   LHoraInicio := JsonString(AData, 'hora_inicio', '');
@@ -351,13 +525,13 @@ begin
     LAgendamento.PacienteId := LPacienteId;
     LAgendamento.ProfissionalId := LProfissionalId;
     LAgendamento.Profissional := LProfissional;
-    LAgendamento.ProcedimentoId := JsonInteger(AData, 'procedimento_id', 0);
-    LAgendamento.Procedimento := JsonString(AData, 'procedimento', 'Consulta');
+    LAgendamento.ProcedimentoId := LProcedimentoId;
+    LAgendamento.Procedimento := LProcedimento;
     LAgendamento.Inicio := LInicio;
     LAgendamento.Fim := LFim;
     LAgendamento.Status := LStatus;
     LAgendamento.Prioridade := JsonString(AData, 'prioridade', 'normal');
-    LAgendamento.ParceriaId := JsonInteger(AData, 'parceria_id', 0);
+    LAgendamento.ParceriaId := LParceriaId;
     LAgendamento.Observacao := JsonString(AData, 'observacao', '');
     LAgendamento.CriadoEm := Now;
     LAgendamento.CriadoPor := JsonInteger(AData, 'criado_por', 0);
@@ -371,19 +545,26 @@ end;
 procedure TAgendaService.Atualizar(AId: Integer; AData: TJSONObject);
 var
   LAgendamento: TModelAgendamento;
-  LPacienteId, LProfissionalId: Integer;
-  LProfissional, LData, LHoraInicio, LHoraFim, LStatus: string;
+  LPacienteId, LProfissionalId, LProcedimentoId, LParceriaId: Integer;
+  LProfissional, LProcedimento, LData, LHoraInicio, LHoraFim, LStatus: string;
   LInicio, LFim: TDateTime;
 begin
   LAgendamento := BuscarAgendamento(AId);
   try
     LPacienteId := JsonInteger(AData, 'paciente_id', LAgendamento.PacienteId);
     LProfissionalId := JsonInteger(AData, 'profissional_id', LAgendamento.ProfissionalId);
-    LProfissional := Trim(JsonString(AData, 'profissional', LAgendamento.Profissional));
+    LProfissional := ObterProfissionalAtivo(LProfissionalId);
+    LProcedimentoId := JsonInteger(AData, 'procedimento_id', LAgendamento.ProcedimentoId);
+    if LProcedimentoId <> LAgendamento.ProcedimentoId then
+      LProcedimento := ObterProcedimentoAtivo(LProcedimentoId)
+    else
+      LProcedimento := LAgendamento.Procedimento;
+    if (LProcedimentoId <= 0) and (Trim(LProcedimento) = '') then
+      raise EAgendaValidacao.Create('Procedimento e obrigatorio');
+    LParceriaId := JsonInteger(AData, 'parceria_id', LAgendamento.ParceriaId);
+    if LParceriaId <> LAgendamento.ParceriaId then
+      ValidarParceriaAtiva(LParceriaId);
     LStatus := NormalizarStatus(JsonString(AData, 'status', LAgendamento.Status));
-
-    if (LProfissionalId <= 0) and (LProfissional = '') then
-      raise EAgendaValidacao.Create('Profissional e obrigatorio');
 
     LData := JsonString(AData, 'data', '');
     LHoraInicio := JsonString(AData, 'hora_inicio', '');
@@ -402,6 +583,8 @@ begin
     end;
 
     ValidarStatus(LStatus);
+    if not TransicaoStatusPermitida(LAgendamento.Status, LStatus) then
+      raise EAgendaValidacao.Create('Transicao de status nao permitida');
     ValidarHorario(LInicio, LFim);
     ValidarPacienteAtivo(LPacienteId);
     if LStatus <> 'fila_espera' then
@@ -410,13 +593,13 @@ begin
     LAgendamento.PacienteId := LPacienteId;
     LAgendamento.ProfissionalId := LProfissionalId;
     LAgendamento.Profissional := LProfissional;
-    LAgendamento.ProcedimentoId := JsonInteger(AData, 'procedimento_id', LAgendamento.ProcedimentoId);
-    LAgendamento.Procedimento := JsonString(AData, 'procedimento', LAgendamento.Procedimento);
+    LAgendamento.ProcedimentoId := LProcedimentoId;
+    LAgendamento.Procedimento := LProcedimento;
     LAgendamento.Inicio := LInicio;
     LAgendamento.Fim := LFim;
     LAgendamento.Status := LStatus;
     LAgendamento.Prioridade := JsonString(AData, 'prioridade', LAgendamento.Prioridade);
-    LAgendamento.ParceriaId := JsonInteger(AData, 'parceria_id', LAgendamento.ParceriaId);
+    LAgendamento.ParceriaId := LParceriaId;
     LAgendamento.Observacao := JsonString(AData, 'observacao', LAgendamento.Observacao);
     LAgendamento.SalvaNoBanco(1);
   finally
@@ -434,6 +617,8 @@ begin
 
   LAgendamento := BuscarAgendamento(AId);
   try
+    if not TransicaoStatusPermitida(LAgendamento.Status, LStatus) then
+      raise EAgendaValidacao.Create('Transicao de status nao permitida');
     LAgendamento.Status := LStatus;
     LAgendamento.SalvaNoBanco(1);
   finally
@@ -449,6 +634,43 @@ end;
 function TAgendaService.ListarFilaEspera: TJSONArray;
 begin
   Result := Listar('', '', '', 'fila_espera');
+end;
+
+function TAgendaService.ListarProfissionais: TJSONArray;
+var
+  LIndiceConexao: Integer;
+  LConn: TFDConnection;
+  LQuery: TFDQuery;
+begin
+  LIndiceConexao := TDatabase.Connection.Connected;
+  try
+    LConn := TFDConnection(TDatabase.Connection.GetListaConexoes[LIndiceConexao]);
+    LQuery := TFDQuery.Create(nil);
+    try
+      LQuery.Connection := LConn;
+      LQuery.SQL.Text :=
+        'SELECT FUN_CODIGO AS ID, FUN_NOME AS NOME FROM FUNCIONARIOS ' +
+        'WHERE UPPER(TRIM(COALESCE(FUN_ESTADO, ''''))) = ''ATIVO'' ' +
+        'AND COALESCE(FUN_ATENDE, 0) = 1 ' +
+        'ORDER BY FUN_NOME';
+      LQuery.Open;
+      Result := TDatasetJsonUtils.QueryToJSONArray(LQuery);
+    finally
+      LQuery.Free;
+    end;
+  finally
+    TDatabase.Connection.Disconnected(LIndiceConexao);
+  end;
+end;
+
+function TAgendaService.ListarParcerias: TJSONArray;
+begin
+  Result := TParceriaService.ListarAtivas;
+end;
+
+function TAgendaService.ListarProcedimentos: TJSONArray;
+begin
+  Result := TProcedimentoService.ListarAtivos;
 end;
 
 function TAgendaService.LancarPagamento(AId: Integer; AData: TJSONObject): TJSONObject;

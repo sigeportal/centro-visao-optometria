@@ -1,0 +1,463 @@
+export const CLINIC_INFO = {
+  name: "Centro Visão Optometria",
+  subName: "Centro Visão Optometria",
+  cnpj: "12.345.678/0001-90",
+  phone: "(11) 98765-4321",
+  whatsapp: "(11) 98765-4321",
+  city: "São Paulo",
+  state: "SP",
+  address: "Av. Paulista, 1000 — Sala 804, Bela Vista",
+  user: {
+    name: "Dr. Adelino Souza",
+    role: "Administrador / Optometrista",
+    crm: "CBOO 45.892",
+    avatar: "https://images.unsplash.com/photo-1622253692010-333f2da6031d?w=150&auto=format&fit=crop&q=80"
+  }
+};
+
+export const PROFESSIONALS = [
+  { id: 1, name: "Dra. Katiuscia Almeida", spec: "Optometrista Ocular", cboo: "CBOO 38.410" },
+  { id: 2, name: "Dr. Adelino Souza", spec: "Optometrista Clínico", cboo: "CBOO 45.892" },
+];
+
+export const PROCEDURES = [
+  { id: 1, name: "Consulta Optométrica Completa", duration: 30, price: 180.00 },
+  { id: 2, name: "Retorno Optométrico", duration: 20, price: 0.00 },
+  { id: 3, name: "Adaptação de Lentes de Contato", duration: 40, price: 250.00 },
+  { id: 4, name: "Avaliação Ortóptica & Motora", duration: 30, price: 200.00 },
+  { id: 5, name: "Tonometria & Campo Visual", duration: 25, price: 150.00 },
+];
+
+export const PARTNERSHIPS = [
+  { id: 1, name: "Particular", discount: 0 },
+  { id: 2, name: "Ótica Visão Real", discount: 15 },
+  { id: 3, name: "Ótica Master Precision", discount: 10 },
+  { id: 4, name: "Ótica Bela Vista", discount: 20 },
+  { id: 5, name: "Convênio Ocular Prime", discount: 25 },
+];
+
+export const DASHBOARD_METRICS = {
+  totalPatients: 7420,
+  todayAppointments: 18,
+  todayCompletedConsultations: 14,
+  monthConsultations: 342,
+  monthlyRevenue: "R$ 48.650,00",
+  pendingReceivables: "R$ 3.820,00",
+  todayGrowth: "+12.5%",
+  consultationGoal: "88%"
+};
+
+export const MOCK_PATIENTS = [
+  {
+    id: "PAC-0104",
+    name: "Carlos Eduardo Silva",
+    socialName: "Carlos Silva",
+    cpf: "123.456.789-00",
+    rg: "12.345.678-9",
+    birthDate: "1988-04-15",
+    age: 38,
+    gender: "Masculino",
+    phone: "(11) 99887-6655",
+    email: "carlos.silva@email.com",
+    city: "São Paulo",
+    state: "SP",
+    cep: "01310-100",
+    address: "Rua Augusta, 450 — Ap 32",
+    occupation: "Engenheiro de Software",
+    origin: "Ótica Visão Real",
+    responsibleName: "-",
+    responsibleCpf: "-",
+    notes: "Paciente relata cansaço visual noturno ao computador. Usa óculos multifocal há 2 anos.",
+    totalConsultations: 4,
+    status: "Ativo",
+    createdAt: "2024-02-10",
+    lastConsultation: "2026-08-13"
+  },
+  {
+    id: "PAC-0105",
+    name: "Maria das Graças Oliveira",
+    socialName: "Maria Oliveira",
+    cpf: "987.654.321-11",
+    rg: "98.765.432-1",
+    birthDate: "1965-09-22",
+    age: 60,
+    gender: "Feminino",
+    phone: "(11) 98765-1122",
+    email: "maria.gracas@email.com",
+    city: "Guarulhos",
+    state: "SP",
+    cep: "07010-000",
+    address: "Av. Salgado Filho, 1200",
+    occupation: "Professora Aposentada",
+    origin: "Indicação",
+    responsibleName: "-",
+    responsibleCpf: "-",
+    notes: "Histórico familiar de Glaucoma (mãe). Fazer acompanhamento de PIO a cada 6 meses.",
+    totalConsultations: 8,
+    status: "Ativo",
+    createdAt: "2023-05-18",
+    lastConsultation: "2026-08-10"
+  },
+  {
+    id: "PAC-0106",
+    name: "João Pedro Ferreira",
+    socialName: "Jotape",
+    cpf: "456.789.123-44",
+    rg: "45.678.912-3",
+    birthDate: "2012-11-03",
+    age: 13,
+    gender: "Masculino",
+    phone: "(11) 97654-3344",
+    email: "renata.ferreira@email.com",
+    city: "São Paulo",
+    state: "SP",
+    cep: "04001-000",
+    address: "Rua Vergueiro, 890",
+    occupation: "Estudante",
+    origin: "Redes Sociais",
+    responsibleName: "Renata Ferreira (Mãe)",
+    responsibleCpf: "234.567.890-11",
+    notes: "Queixa de vista embaçada no quadro da escola. Primeira consulta optométrica.",
+    totalConsultations: 1,
+    status: "Ativo",
+    createdAt: "2026-08-12",
+    lastConsultation: "2026-08-13"
+  },
+  {
+    id: "PAC-0107",
+    name: "Ana Beatriz Lima",
+    socialName: "Bia Lima",
+    cpf: "321.654.987-88",
+    rg: "32.165.498-7",
+    birthDate: "1995-03-30",
+    age: 31,
+    gender: "Feminino",
+    phone: "(11) 96543-2211",
+    email: "ana.lima@design.com",
+    city: "Santo André",
+    state: "SP",
+    cep: "09010-000",
+    address: "Rua Portugal, 230",
+    occupation: "Designer Gráfica",
+    origin: "Panfletagem",
+    responsibleName: "-",
+    responsibleCpf: "-",
+    notes: "Usuária de lentes de contato tóricas descartáveis. Solicita nova receita.",
+    totalConsultations: 3,
+    status: "Ativo",
+    createdAt: "2025-01-20",
+    lastConsultation: "2026-08-05"
+  },
+  {
+    id: "PAC-0108",
+    name: "Roberto Mendes Santos",
+    socialName: "Roberto",
+    cpf: "789.123.456-55",
+    rg: "78.912.345-6",
+    birthDate: "1978-07-12",
+    age: 48,
+    gender: "Masculino",
+    phone: "(11) 95432-8899",
+    email: "roberto.mendes@empresa.com",
+    city: "São Paulo",
+    state: "SP",
+    cep: "01452-000",
+    address: "Av. Faria Lima, 3400",
+    occupation: "Empresário",
+    origin: "Ótica Master Precision",
+    responsibleName: "-",
+    responsibleCpf: "-",
+    notes: "Presbiopia acentuada. Necessita de adição +2.25. Exame realizado com sucesso.",
+    totalConsultations: 5,
+    status: "Ativo",
+    createdAt: "2023-11-04",
+    lastConsultation: "2026-08-01"
+  }
+];
+
+export const MOCK_WAITING_LIST = [
+  {
+    id: "WAIT-01",
+    arrivalTime: "08:15",
+    waitTimeMin: 22,
+    patientName: "João Pedro Ferreira",
+    age: 13,
+    city: "São Paulo",
+    doctor: "Dr. Adelino Souza",
+    procedure: "Consulta Optométrica Completa",
+    partnership: "Particular",
+    paymentStatus: "Pago (PIX)",
+    status: "Aguardando Chamada"
+  },
+  {
+    id: "WAIT-02",
+    arrivalTime: "08:35",
+    waitTimeMin: 10,
+    patientName: "Camila Rodrigues",
+    age: 29,
+    city: "São Bernardo",
+    doctor: "Dra. Katiuscia Almeida",
+    procedure: "Adaptação de Lentes de Contato",
+    partnership: "Ótica Visão Real",
+    paymentStatus: "A Receber na Saída",
+    status: "Em Espera"
+  },
+  {
+    id: "WAIT-03",
+    arrivalTime: "08:50",
+    waitTimeMin: 2,
+    patientName: "Fernando Costa",
+    age: 52,
+    city: "Osasco",
+    doctor: "Dr. Adelino Souza",
+    procedure: "Retorno Optométrico",
+    partnership: "Particular",
+    paymentStatus: "Isento (Retorno)",
+    status: "Chegou Agora"
+  }
+];
+
+export const MOCK_APPOINTMENTS_SCHEDULE = [
+  { id: 101, time: "08:00", patient: "Carlos Eduardo Silva", doctor: "Dr. Adelino Souza", procedure: "Consulta Optométrica Completa", status: "Concluído", color: "bg-emerald-50 text-emerald-800 border-emerald-300" },
+  { id: 102, time: "08:30", patient: "João Pedro Ferreira", doctor: "Dr. Adelino Souza", procedure: "Consulta Optométrica Completa", status: "Em Atendimento", color: "bg-orange-50 text-orange-900 border-orange-300" },
+  { id: 103, time: "09:00", patient: "Camila Rodrigues", doctor: "Dra. Katiuscia Almeida", procedure: "Adaptação Lentes", status: "Na Fila", color: "bg-orange-50 text-orange-800 border-orange-200" },
+  { id: 104, time: "09:30", patient: "Fernando Costa", doctor: "Dr. Adelino Souza", procedure: "Retorno Optométrico", status: "Confirmado", color: "bg-emerald-50 text-emerald-800 border-emerald-200" },
+  { id: 105, time: "10:00", patient: "Patricia Abravanel", doctor: "Dra. Katiuscia Almeida", procedure: "Consulta Optométrica Completa", status: "Confirmado", color: "bg-emerald-50 text-emerald-800 border-emerald-200" },
+  { id: 106, time: "10:30", patient: "Lucas Vasconcelos", doctor: "Dr. Adelino Souza", procedure: "Avaliação Ortóptica", status: "Agendado", color: "bg-slate-100 text-slate-700 border-slate-200" },
+  { id: 107, time: "11:00", patient: "Juliana Paes", doctor: "Dra. Katiuscia Almeida", procedure: "Tonometria", status: "Agendado", color: "bg-slate-100 text-slate-700 border-slate-200" },
+  { id: 108, time: "14:00", patient: "Renato Russo Santos", doctor: "Dr. Adelino Souza", procedure: "Consulta Optométrica Completa", status: "Agendado", color: "bg-slate-100 text-slate-700 border-slate-200" },
+  { id: 109, time: "14:30", patient: "Vanessa da Mata", doctor: "Dra. Katiuscia Almeida", procedure: "Adaptação Lentes", status: "Agendado", color: "bg-slate-100 text-slate-700 border-slate-200" },
+];
+
+export const MOCK_BIRTHDAYS = [
+  { id: 1, name: "Ana Beatriz Lima", age: 31, date: "Hoje (13/08)", phone: "(11) 96543-2211" },
+  { id: 2, name: "Mariana Rios", age: 28, date: "Amanhã (14/08)", phone: "(11) 97112-9988" }
+];
+
+export const MOCK_EXPIRING_EXAMS = [
+  { id: 1, name: "Maria das Graças Oliveira", lastExam: "13/08/2025", phone: "(11) 98765-1122", daysOverdue: 0, status: "Vence Hoje" },
+  { id: 2, name: "Roberto Mendes Santos", lastExam: "10/08/2025", phone: "(11) 95432-8899", daysOverdue: 3, status: "Vencido há 3 dias" }
+];
+
+export const MOCK_PRESCRIPTION_GLASSES = {
+  od: { esferico: "-2.25", cilindrico: "-0.75", eixo: "180°", av: "20/20", prisma: "0.0", dnp: "32.0" },
+  oe: { esferico: "-2.00", cilindrico: "-1.00", eixo: "175°", av: "20/20", prisma: "0.0", dnp: "31.5" },
+  adicao: "+1.75",
+  tipoLente: "Multifocal Digital Antirreflexo Premium",
+  observacoes: "Paciente adaptado a lentes fotossensíveis (Transitions). Recomendado uso de filtro de luz azul para trabalho no computador.",
+  retornoMeses: "12 meses"
+};
+
+export const MOCK_PRESCRIPTION_CONTACT = {
+  od: { esferico: "-2.25", cilindrico: "-0.75", eixo: "180°", av: "20/20" },
+  oe: { esferico: "-2.00", cilindrico: "-0.75", eixo: "170°", av: "20/20" },
+  tipoLente: "Tórica Descartável Mensal",
+  curvaBase: "8.6",
+  diametro: "14.2",
+  observacoes: "Uso diário máximo de 10 horas. Higienização exclusiva com solução multipropósito esterilizada."
+};
+
+export const MOCK_EXAM_SHEET = {
+  motivoPrincipal: "Dificuldade para leitura de perto e leve ardor ao final do dia de trabalho.",
+  ultimoExame: "13/08/2025",
+  sintomas: ["Cansaço visual", "Força a visão", "Ardência", "Sensibilidade à luz"],
+  doencasOculares: ["Conjuntivite alérgica sazonal"],
+  doencasSistemicas: ["Hipertensão arterial"],
+  medicamentos: ["Losartana 50mg"],
+  antecedentesFamiliares: ["Glaucoma (Mãe)", "Pressão alta (Pai)"],
+  acuidadeVisual: {
+    sc: { od: "20/60", oe: "20/50", ao: "20/40" },
+    cc: { od: "20/20", oe: "20/20", ao: "20/15" },
+    perto: "J1 (com adição +1.75)"
+  },
+  biomicroscopia: {
+    od: "Córnea transparente, câmara anterior profunda sem flare, íris trófica.",
+    oe: "Conjuntiva com hiperemia leve +1 em região temporal. Córnea límpida."
+  },
+  ceratometria: {
+    tecnica: "AutoRefratômetro Topográfico",
+    od: "43.25 @ 180° / 44.00 @ 90°",
+    oe: "43.50 @ 175° / 44.50 @ 85°"
+  },
+  tonometria: {
+    tecnica: "Transpalpebral / Aplanação Goldman",
+    od: "14 mmHg",
+    oe: "15 mmHg",
+    hora: "08:45"
+  },
+  oftalmoscopia: {
+    reflexoBruckner: "Normal bilateral",
+    escavacao: "0.3 x 0.3 em AO",
+    macula: "Brilho foveal preservado sem drusas",
+    retina: "Aplicada 360°"
+  },
+  diagnosticoFinal: "Astigmatismo Miópico Composto + Presbiopia Incipiente."
+};
+
+export const MOCK_FINANCIAL_TRANSACTIONS = [
+  { id: "REC-801", date: "13/08/2026", description: "Consulta Optométrica - Carlos Eduardo", category: "Receitas de serviços", type: "Receita", paymentMethod: "PIX", status: "Recebido", amount: 180.00 },
+  { id: "REC-802", date: "13/08/2026", description: "Adaptação de Lentes - Ana Beatriz", category: "Receitas de serviços", type: "Receita", paymentMethod: "Cartão Crédito", status: "Recebido", amount: 250.00 },
+  { id: "DES-401", date: "12/08/2026", description: "Aluguel Comercial Sala 804", category: "Aluguel", type: "Despesa", paymentMethod: "Transferência Bancária", status: "Pago", amount: 3200.00 },
+  { id: "DES-402", date: "11/08/2026", description: "Suprimentos Médicos & Colírios", category: "Custos Fixos", type: "Despesa", paymentMethod: "Cartão Débito", status: "Pago", amount: 450.00 },
+  { id: "REC-803", date: "10/08/2026", description: "Repasse Comissão - Ótica Visão Real", category: "Parcerias", type: "Receita", paymentMethod: "PIX", status: "Recebido", amount: 1450.00 },
+  { id: "REC-804", date: "09/08/2026", description: "Consulta Optométrica - Roberto Mendes", category: "Receitas de serviços", type: "Receita", paymentMethod: "Dinheiro", status: "Recebido", amount: 180.00 },
+];
+
+export const MOCK_REVENUE_CHART = [
+  { month: "Mar/26", receitas: 41200, despesas: 18400, lucro: 22800 },
+  { month: "Abr/26", receitas: 44500, despesas: 19100, lucro: 25400 },
+  { month: "Mai/26", receitas: 42900, despesas: 17800, lucro: 25100 },
+  { month: "Jun/26", receitas: 47800, despesas: 20200, lucro: 27600 },
+  { month: "Jul/26", receitas: 46200, despesas: 18900, lucro: 27300 },
+  { month: "Ago/26", receitas: 48650, despesas: 19400, lucro: 29250 },
+];
+
+export const MOCK_CONSULTATIONS_LIST = [
+  {
+    id: "CON-001",
+    date: "13/08/2026",
+    time: "09:30",
+    patientId: "PAC-0104",
+    patientName: "Carlos Eduardo Silva",
+    age: 38,
+    phone: "(11) 99887-6655",
+    doctor: "Dr. Adelino Souza",
+    procedure: "Consulta Optométrica Completa",
+    status: "Em Atendimento",
+    statusColor: "bg-orange-100 text-orange-950 border-orange-300",
+    partnership: "Ótica Visão Real",
+    dx: "Astigmatismo Miópico Composto e Presbiopia Incipiente",
+    od: "ESF -2.25 • CIL -0.75 • EIXO 180° • AV 20/20",
+    oe: "ESF -2.00 • CIL -1.00 • EIXO 175° • AV 20/20",
+    add: "+1.75",
+    lens: "Multifocal Digital Antirreflexo Premium",
+    notes: "Paciente relatou queixa de astenopia noturna no computador.",
+    anexosCount: 0
+  },
+  {
+    id: "CON-002",
+    date: "13/08/2026",
+    time: "08:30",
+    patientId: "PAC-0106",
+    patientName: "João Pedro Ferreira",
+    age: 13,
+    phone: "(11) 97654-3344",
+    doctor: "Dr. Adelino Souza",
+    procedure: "Consulta Optométrica Completa",
+    status: "Concluído",
+    statusColor: "bg-emerald-100 text-emerald-950 border-emerald-300",
+    partnership: "Particular",
+    dx: "Miopia Axial Juvenil",
+    od: "ESF -1.50 • CIL -0.25 • EIXO 180° • AV 20/20",
+    oe: "ESF -1.25 • CIL -0.50 • EIXO 170° • AV 20/20",
+    add: "Plano",
+    lens: "Visão Simples com Filtro de Luz Azul",
+    notes: "Adaptação de primeira correção para uso em sala de aula.",
+    anexosCount: 0
+  },
+  {
+    id: "CON-003",
+    date: "13/08/2026",
+    time: "08:00",
+    patientId: "PAC-0105",
+    patientName: "Maria das Graças Oliveira",
+    age: 64,
+    phone: "(11) 98765-1122",
+    doctor: "Dra. Katiuscia Almeida",
+    procedure: "Retorno Optométrico",
+    status: "Concluído",
+    statusColor: "bg-emerald-100 text-emerald-950 border-emerald-300",
+    partnership: "Convênio Ocular Prime",
+    dx: "Presbiopia Estável & Pseudofácica AO",
+    od: "ESF 0.00 • CIL 0.00 • AV 20/20",
+    oe: "ESF 0.00 • CIL 0.00 • AV 20/20",
+    add: "+2.50",
+    lens: "Óculos de Leitura Perto Antirreflexo",
+    notes: "Retorno pós cirurgia de catarata satisfatório.",
+    anexosCount: 1
+  },
+  {
+    id: "CON-004",
+    date: "12/08/2026",
+    time: "16:30",
+    patientId: "PAC-0107",
+    patientName: "Ana Beatriz Lima",
+    age: 31,
+    phone: "(11) 96543-2211",
+    doctor: "Dra. Katiuscia Almeida",
+    procedure: "Adaptação de Lentes de Contato",
+    status: "Concluído",
+    statusColor: "bg-emerald-100 text-emerald-950 border-emerald-300",
+    partnership: "Particular",
+    dx: "Astigmatismo Miópico com Excelente Adaptação Tóricas",
+    od: "ESF -2.25 • CIL -0.75 • EIXO 180°",
+    oe: "ESF -2.00 • CIL -0.75 • EIXO 170°",
+    add: "Plano",
+    lens: "Lentes Tóricas Descartáveis Mensais (CB 8.6 / Diam 14.2)",
+    notes: "Orientações de assepsia e lubrificação repassadas.",
+    anexosCount: 0
+  },
+  {
+    id: "CON-005",
+    date: "12/08/2026",
+    time: "15:00",
+    patientId: "PAC-0108",
+    patientName: "Roberto Mendes Santos",
+    age: 48,
+    phone: "(11) 95432-8899",
+    doctor: "Dr. Adelino Souza",
+    procedure: "Consulta Optométrica Completa",
+    status: "Concluído",
+    statusColor: "bg-emerald-100 text-emerald-950 border-emerald-300",
+    partnership: "Ótica Master Precision",
+    dx: "Presbiopia e Astigmatismo Hipermetrópico",
+    od: "ESF +1.25 • CIL -0.75 • EIXO 90° • AV 20/20",
+    oe: "ESF +1.00 • CIL -0.50 • EIXO 85° • AV 20/20",
+    add: "+2.25",
+    lens: "Multifocal Digital Antirreflexo",
+    notes: "Indicação de corredor progressivo amplo.",
+    anexosCount: 0
+  },
+  {
+    id: "CON-006",
+    date: "12/08/2026",
+    time: "14:00",
+    patientId: "PAC-0109",
+    patientName: "Camila Rodrigues",
+    age: 29,
+    phone: "(11) 98112-4455",
+    doctor: "Dr. Adelino Souza",
+    procedure: "Avaliação Ortóptica & Motora",
+    status: "Concluído",
+    statusColor: "bg-emerald-100 text-emerald-950 border-emerald-300",
+    partnership: "Ótica Visão Real",
+    dx: "Insuficiência de Convergência Ocular",
+    od: "ESF -0.50 • Prisma 1.0Δ BI",
+    oe: "ESF -0.50 • Prisma 1.0Δ BI",
+    add: "Plano",
+    lens: "Lentes com Compensação Prismática",
+    notes: "Iniciado protocolo de terapia visual optométrica.",
+    anexosCount: 0
+  },
+  {
+    id: "CON-007",
+    date: "11/08/2026",
+    time: "11:30",
+    patientId: "PAC-0110",
+    patientName: "Fernando Costa",
+    age: 52,
+    phone: "(11) 97223-9900",
+    doctor: "Dra. Katiuscia Almeida",
+    procedure: "Tonometria & Campo Visual",
+    status: "Concluído",
+    statusColor: "bg-emerald-100 text-emerald-950 border-emerald-300",
+    partnership: "Particular",
+    dx: "Tonometria Normal (OD 14 / OE 15 mmHg) e Campo Preservado",
+    od: "ESF +0.75 • CIL -0.50 • EIXO 180°",
+    oe: "ESF +0.75 • CIL -0.50 • EIXO 180°",
+    add: "+2.00",
+    lens: "Manutenção de Prescrição Anterior",
+    notes: "Pressão intraocular fisiológica normal.",
+    anexosCount: 0
+  }
+];

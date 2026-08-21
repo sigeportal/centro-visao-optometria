@@ -22,16 +22,18 @@ uses
   System.JSON,
   Horse.Commons,
   Horse.GBSwagger,
+  Autorizacao.Middleware,
+  Autorizacao.Service,
   Dashboard.Service,
   Response.Utils,
   Logger.Utils;
 
 class procedure TDashboardController.Registrar;
 begin
-  THorse.Group.Prefix('/v1/dashboard').Get('/resumo', Resumo);
-  THorse.Group.Prefix('/v1/dashboard').Get('/proximas-consultas', ProximasConsultas);
-  THorse.Group.Prefix('/v1/dashboard').Get('/aniversariantes', Aniversariantes);
-  THorse.Group.Prefix('/v1/dashboard').Get('/consultas-vencidas', ConsultasVencidas);
+  THorse.Group.Prefix('/v1/dashboard').Get('/resumo', AutorizarRota(PERM_DASHBOARD_CONSULTAR, Resumo));
+  THorse.Group.Prefix('/v1/dashboard').Get('/proximas-consultas', AutorizarRota(PERM_DASHBOARD_CONSULTAR, ProximasConsultas));
+  THorse.Group.Prefix('/v1/dashboard').Get('/aniversariantes', AutorizarRota(PERM_DASHBOARD_CONSULTAR, Aniversariantes));
+  THorse.Group.Prefix('/v1/dashboard').Get('/consultas-vencidas', AutorizarRota(PERM_DASHBOARD_CONSULTAR, ConsultasVencidas));
 end;
 
 class procedure TDashboardController.Resumo(Req: THorseRequest; Res: THorseResponse; Next: TProc);

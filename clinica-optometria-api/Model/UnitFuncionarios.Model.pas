@@ -33,6 +33,7 @@ type
     FEndereco: string;
     FEstado: string;
     FCelular: string;
+    FAtende: smallint;
     { private declarations }
   public
     { public declarations }
@@ -74,6 +75,8 @@ type
     property Categoria: string read FCategoria write FCategoria;
     [TCampo('FUN_FUNC', 'INTEGER')]
     property Func: integer read FFunc write FFunc;
+    [TCampo('FUN_ATENDE', 'SMALLINT DEFAULT 0 NOT NULL')]
+    property Atende: smallint read FAtende write FAtende;
   end;
 
 implementation

@@ -8,8 +8,9 @@ uses
 type
   TFichaClinicaService = class
   private
-    procedure GarantirSecoesIniciais;
+    class procedure GarantirSecoesIniciais;
   public
+    class procedure Inicializar;
     function ListarSecoes: TJSONArray;
     procedure AtualizarOrdem(ASecoes: TJSONArray);
     procedure AtualizarAtivo(AId: Integer; AAtivo: Boolean);
@@ -27,7 +28,7 @@ uses
   Dataset.JSON.Utils;
 
 const
-  SECOES_INICIAIS: array[0..14, 0..1] of string = (
+  SECOES_INICIAIS: array[0..21, 0..1] of string = (
     ('anamnese', 'Anamnese'),
     ('prescricao_ultimo_exame', 'Prescricao do Ultimo Exame'),
     ('acuidade_visual', 'Acuidade Visual'),
@@ -42,32 +43,51 @@ const
     ('rx_final', 'RX Final'),
     ('amplitude_acomodacao', 'Amplitude de Acomodacao'),
     ('afinamento', 'Afinamento'),
-    ('dx', 'DX')
+    ('dx', 'DX'),
+    ('flexibilidade_acomodacao', 'Flexibilidade e Facilidade de Acomodacao'),
+    ('adicao', 'Adicao'),
+    ('ppc', 'PPC'),
+    ('reflexos_pupilares', 'Reflexos Pupilares'),
+    ('reservas_fusionais', 'Reservas Fusionais'),
+    ('subjetivo', 'Subjetivo'),
+    ('teste_ambulatorial', 'Teste Ambulatorial')
   );
 
-procedure TFichaClinicaService.GarantirSecoesIniciais;
+class procedure TFichaClinicaService.GarantirSecoesIniciais;
 var
   LQuery: iQuery;
   LSecao: TModelFichaSecao;
-  I: Integer;
+  I, LProximaOrdem: Integer;
 begin
+  LSecao := TModelFichaSecao.Create(TDatabase.Connection);
+  try
+    LSecao.CriaTabela;
+  finally
+    LSecao.Free;
+  end;
+
   LQuery := TDatabase.Query;
-  LQuery.Clear;
-  LQuery.Add('SELECT COUNT(*) AS TOTAL FROM FICHA_SECAO');
-  LQuery.Open;
-
-  if LQuery.DataSet.FieldByName('TOTAL').AsInteger > 0 then
-    Exit;
-
   LSecao := TModelFichaSecao.Create(TDatabase.Connection);
   try
     for I := Low(SECOES_INICIAIS) to High(SECOES_INICIAIS) do
     begin
+      LQuery.Clear;
+      LQuery.Add('SELECT COUNT(*) AS TOTAL FROM FICHA_SECAO WHERE FSC_CHAVE = :CHAVE');
+      LQuery.AddParam('CHAVE', SECOES_INICIAIS[I, 0]);
+      LQuery.Open;
+      if LQuery.DataSet.FieldByName('TOTAL').AsInteger > 0 then
+        Continue;
+
+      LQuery.Clear;
+      LQuery.Add('SELECT COALESCE(MAX(FSC_ORDEM), 0) + 1 AS PROXIMA_ORDEM FROM FICHA_SECAO');
+      LQuery.Open;
+      LProximaOrdem := LQuery.DataSet.FieldByName('PROXIMA_ORDEM').AsInteger;
+
       LSecao.Id := LSecao.GeraCodigo('FSC_ID');
       LSecao.Chave := SECOES_INICIAIS[I, 0];
       LSecao.Nome := SECOES_INICIAIS[I, 1];
       LSecao.Ativo := 1;
-      LSecao.Ordem := I + 1;
+      LSecao.Ordem := LProximaOrdem;
       LSecao.ExibeTela := 1;
       LSecao.ExibeImpressao := 1;
       LSecao.SalvaNoBanco(1);
@@ -75,6 +95,12 @@ begin
   finally
     LSecao.Free;
   end;
+
+end;
+
+class procedure TFichaClinicaService.Inicializar;
+begin
+  GarantirSecoesIniciais;
 end;
 
 function TFichaClinicaService.ListarSecoes: TJSONArray;
@@ -87,7 +113,8 @@ begin
   LQuery.Clear;
   LQuery.Add('SELECT FSC_ID AS ID, FSC_CHAVE AS CHAVE, FSC_NOME AS NOME, ');
   LQuery.Add('FSC_ATIVO AS ATIVO, FSC_ORDEM AS ORDEM, ');
-  LQuery.Add('FSC_EXIBE_TELA AS EXIBE_TELA, FSC_EXIBE_IMPRESSAO AS EXIBE_IMPRESSAO ');
+  LQuery.Add('FSC_EXIBE_TELA AS EXIBE_TELA, FSC_EXIBE_IMPRESSAO AS EXIBE_IMPRESSAO, ');
+  LQuery.Add('0 AS OBRIGATORIA ');
   LQuery.Add('FROM FICHA_SECAO ORDER BY FSC_ORDEM, FSC_ID');
   LQuery.Open;
   Result := TDatasetJsonUtils.QueryToJSONArray(LQuery.DataSet);

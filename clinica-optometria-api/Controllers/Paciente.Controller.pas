@@ -66,21 +66,23 @@ uses
   System.JSON,
   Horse.Commons,
   Horse.GBSwagger,
+  Autorizacao.Middleware,
+  Autorizacao.Service,
   Paciente.Service,
   Response.Utils,
   Logger.Utils;
 
 class procedure TPacienteController.Registrar;
 begin
-  THorse.Group.Prefix('/v1/pacientes').Get('', Listar);
-  THorse.Group.Prefix('/v1/pacientes').Get('/:id', ObterPorId);
-  THorse.Group.Prefix('/v1/pacientes').Post('', Criar);
-  THorse.Group.Prefix('/v1/pacientes').Put('/:id', Atualizar);
-  THorse.Group.Prefix('/v1/pacientes').Delete('/:id', Excluir);
-  THorse.Group.Prefix('/v1/pacientes').Get('/:id/anamneses', ListarAnamneses);
-  THorse.Group.Prefix('/v1/pacientes').Get('/:id/consultas', ListarConsultas);
-  THorse.Group.Prefix('/v1/pacientes').Get('/:id/financeiro', ListarFinanceiro);
-  THorse.Group.Prefix('/v1/pacientes').Get('/:id/documentos', ListarDocumentos);
+  THorse.Group.Prefix('/v1/pacientes').Get('', AutorizarRota(PERM_PACIENTE_CONSULTAR, Listar));
+  THorse.Group.Prefix('/v1/pacientes').Get('/:id', AutorizarRota(PERM_PACIENTE_CONSULTAR, ObterPorId));
+  THorse.Group.Prefix('/v1/pacientes').Post('', AutorizarRota(PERM_PACIENTE_ALTERAR, Criar));
+  THorse.Group.Prefix('/v1/pacientes').Put('/:id', AutorizarRota(PERM_PACIENTE_ALTERAR, Atualizar));
+  THorse.Group.Prefix('/v1/pacientes').Delete('/:id', AutorizarRota(PERM_PACIENTE_EXCLUIR, Excluir));
+  THorse.Group.Prefix('/v1/pacientes').Get('/:id/anamneses', AutorizarRota(PERM_CLINICO_CONSULTAR, ListarAnamneses));
+  THorse.Group.Prefix('/v1/pacientes').Get('/:id/consultas', AutorizarRota(PERM_CONSULTA_RESUMO, ListarConsultas));
+  THorse.Group.Prefix('/v1/pacientes').Get('/:id/financeiro', AutorizarRota(PERM_FINANCEIRO_CONSULTAR, ListarFinanceiro));
+  THorse.Group.Prefix('/v1/pacientes').Get('/:id/documentos', AutorizarRota(PERM_CLINICO_CONSULTAR, ListarDocumentos));
 end;
 
 class procedure TPacienteController.Listar(Req: THorseRequest; Res: THorseResponse; Next: TProc);

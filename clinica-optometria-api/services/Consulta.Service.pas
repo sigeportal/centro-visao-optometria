@@ -14,6 +14,7 @@ type
   private
     procedure GarantirTabelas;
     procedure ValidarConsultaExiste(AConsultaId: Integer);
+    procedure ValidarConsultaEditavel(AConsultaId: Integer);
     procedure ValidarPacienteAtivo(APacienteId: Integer);
     function ConsultaPacienteId(AConsultaId: Integer): Integer;
     function AnamneseToJSON(AAnamneseId: Integer): TJSONObject;
@@ -44,16 +45,24 @@ type
     function ImpressaoPrescricao(APrescricaoId: Integer): TJSONObject;
 
     function ListarDocumentos(AConsultaId: Integer): TJSONArray;
-    function CriarDocumento(AConsultaId: Integer; ADados: TJSONObject): Integer;
+    function ObterDocumentoPorId(ADocumentoId: Integer): TJSONObject;
+    function CriarDocumento(AConsultaId, AUsuarioId: Integer; ADados: TJSONObject): Integer;
+    procedure AtualizarDocumento(ADocumentoId, AUsuarioId: Integer; ADados: TJSONObject);
+    procedure EmitirDocumento(ADocumentoId, AUsuarioId: Integer);
+    function ImpressaoDocumento(ADocumentoId: Integer): TJSONObject;
+    function ListarAnexos(AConsultaId: Integer): TJSONArray;
+    function CriarAnexo(AConsultaId, AUsuarioId: Integer; ADados: TJSONObject): Integer;
   end;
 
 implementation
 
 uses
   System.DateUtils,
+  System.StrUtils,
   UnitConnection.Model.Interfaces,
   UnitDatabase,
   Models.Clinica,
+  Atendimento.Service,
   Dataset.JSON.Utils;
 
 const
@@ -63,6 +72,47 @@ const
   STATUS_CANCELADA = 'cancelada';
   STATUS_REALIZADA = 'realizada';
   STATUS_EM_ATENDIMENTO = 'em_atendimento';
+  DOCUMENTO_RASCUNHO = 'rascunho';
+  DOCUMENTO_EMITIDO = 'emitido';
+  DOCUMENTO_SUBSTITUIDO = 'substituido';
+  DOCUMENTO_ANEXO = 'anexo';
+  ANEXO_VINCULADO = 'vinculado';
+
+function CampoDocumentoExiste(const ACampo: string): Boolean;
+var
+  LQuery: iQuery;
+begin
+  LQuery := TDatabase.Query;
+  LQuery.Clear;
+  LQuery.Add('SELECT COUNT(*) AS TOTAL FROM RDB$RELATION_FIELDS ');
+  LQuery.Add('WHERE TRIM(RDB$RELATION_NAME) = ''DOCUMENTOS_CONSULTA'' ');
+  LQuery.Add('AND TRIM(RDB$FIELD_NAME) = :CAMPO');
+  LQuery.AddParam('CAMPO', UpperCase(ACampo));
+  LQuery.Open;
+  Result := LQuery.DataSet.FieldByName('TOTAL').AsInteger > 0;
+end;
+
+procedure GarantirCampoDocumento(const ACampo, ATipo: string);
+var
+  LQuery: iQuery;
+begin
+  if CampoDocumentoExiste(ACampo) then
+    Exit;
+  LQuery := TDatabase.Query;
+  LQuery.Clear;
+  LQuery.Add('ALTER TABLE DOCUMENTOS_CONSULTA ADD ' + ACampo + ' ' + ATipo);
+  LQuery.ExecSQL;
+end;
+
+function TipoDocumentoPermitido(const ATipo: string): Boolean;
+begin
+  Result :=
+    (ATipo = 'atestado') or
+    (ATipo = 'laudo') or
+    (ATipo = 'declaracao') or
+    (ATipo = 'termo_autorizacao') or
+    (ATipo = 'encaminhamento');
+end;
 
 function JsonString(ADados: TJSONObject; const AName: string; const ADefault: string = ''): string;
 begin
@@ -175,6 +225,8 @@ begin
   finally
     LDocumento.Free;
   end;
+
+  GarantirCampoDocumento('DOC_CRIADO_POR', 'INTEGER');
 end;
 
 procedure TConsultaService.ValidarConsultaExiste(AConsultaId: Integer);
@@ -256,7 +308,10 @@ begin
   LQuery.Add('C.CON_PROFISSIONAL AS PROFISSIONAL, C.CON_PROCEDIMENTO AS PROCEDIMENTO, C.CON_STATUS AS STATUS, ');
   LQuery.Add('C.CON_DATA AS DATA, C.CON_FINALIZADA_EM AS FINALIZADA_EM, P.PAC_NOME AS PACIENTE_NOME, ');
   LQuery.Add('P.PAC_DATA_NASCIMENTO AS PACIENTE_DATA_NASCIMENTO, P.PAC_SEXO AS PACIENTE_SEXO, ');
-  LQuery.Add('P.PAC_OCUPACAO AS PACIENTE_OCUPACAO, P.PAC_CIDADE AS PACIENTE_CIDADE ');
+  LQuery.Add('P.PAC_OCUPACAO AS PACIENTE_OCUPACAO, P.PAC_CPF AS PACIENTE_CPF, ');
+  LQuery.Add('P.PAC_RG AS PACIENTE_RG, P.PAC_RESPONSAVEL_NOME AS PACIENTE_RESPONSAVEL, ');
+  LQuery.Add('P.PAC_ENDERECO AS PACIENTE_ENDERECO, P.PAC_COMPLEMENTO AS PACIENTE_COMPLEMENTO, ');
+  LQuery.Add('P.PAC_CIDADE AS PACIENTE_CIDADE, P.PAC_ESTADO AS PACIENTE_ESTADO, P.PAC_CEP AS PACIENTE_CEP ');
   LQuery.Add('FROM CONSULTAS C ');
   LQuery.Add('JOIN PACIENTES P ON P.PAC_ID = C.CON_PACIENTE_ID ');
   LQuery.Add('WHERE C.CON_ID = :ID');
@@ -278,23 +333,49 @@ end;
 
 function TConsultaService.Criar(APacienteId: Integer; const AProcedimento, AProfissional: string; AAgendamentoId: Integer): Integer;
 var
-  LConsulta: TModelConsulta;
+  LAtendimento: TAtendimentoService;
+  LStatus: string;
 begin
-  ValidarPacienteAtivo(APacienteId);
+  if AAgendamentoId <= 0 then
+    raise EConsultaValidacao.Create('Inicie o atendimento a partir de um agendamento valido');
 
+  LAtendimento := TAtendimentoService.Create;
+  try
+    try
+      Result := LAtendimento.Iniciar(AAgendamentoId, LStatus);
+    except
+      on E: EAtendimentoNaoEncontrado do
+        raise EConsultaValidacao.Create(E.Message);
+      on E: EAtendimentoValidacao do
+        raise EConsultaValidacao.Create(E.Message);
+    end;
+  finally
+    LAtendimento.Free;
+  end;
+end;
+
+function JsonModoPrescricao(ADados: TJSONObject): string;
+begin
+  Result := LowerCase(JsonString(ADados, 'modo', 'longe'));
+  if (Result <> 'longe') and (Result <> 'longe_perto') then
+    raise EConsultaValidacao.Create('Modo da prescricao invalido');
+end;
+
+procedure TConsultaService.ValidarConsultaEditavel(AConsultaId: Integer);
+var
+  LConsulta: TModelConsulta;
+  LStatus: string;
+begin
   LConsulta := TModelConsulta.Create(TDatabase.Connection);
   try
-    LConsulta.Id := LConsulta.GeraCodigo('CON_ID');
-    LConsulta.PacienteId := APacienteId;
-    LConsulta.AgendamentoId := AAgendamentoId;
-    LConsulta.Profissional := AProfissional;
-    LConsulta.Procedimento := AProcedimento;
-    if LConsulta.Procedimento = '' then
-      LConsulta.Procedimento := 'Consulta';
-    LConsulta.Status := STATUS_EM_ATENDIMENTO;
-    LConsulta.Data := Now;
-    LConsulta.SalvaNoBanco(1);
-    Result := LConsulta.Id;
+    LConsulta.BuscaDadosTabela(AConsultaId);
+    if LConsulta.Id <= 0 then
+      raise EConsultaNaoEncontrada.Create('Consulta nao encontrada');
+    LStatus := LowerCase(Trim(LConsulta.Status));
+    if (LStatus <> STATUS_EM_ATENDIMENTO) and
+      (LStatus <> STATUS_REALIZADA) and (LStatus <> STATUS_ATENDIDA) then
+      raise EConsultaValidacao.Create(
+        'Os dados clinicos somente podem ser alterados durante ou apos o atendimento');
   finally
     LConsulta.Free;
   end;
@@ -409,7 +490,7 @@ function TConsultaService.CriarAnamnese(AConsultaId: Integer; ADados: TJSONObjec
 var
   LAnamnese: TModelAnamnese;
 begin
-  ValidarConsultaExiste(AConsultaId);
+  ValidarConsultaEditavel(AConsultaId);
   if not Assigned(ADados) then
     raise EConsultaValidacao.Create('Payload invalido');
 
@@ -454,6 +535,8 @@ begin
     if LAnamnese.Id <= 0 then
       raise EConsultaNaoEncontrada.Create('Anamnese nao encontrada');
 
+    ValidarConsultaEditavel(LAnamnese.ConsultaId);
+
     LAnamnese.MotivoPrincipal := JsonString(ADados, 'motivo_principal', JsonString(ADados, 'queixa_principal'));
     LAnamnese.DataUltimoExame := JsonDate(ADados, 'data_ultimo_exame');
     LAnamnese.ObservacoesGerais := JsonString(ADados, 'observacoes_gerais', JsonString(ADados, 'historico'));
@@ -486,6 +569,7 @@ begin
     LAnamnese.BuscaDadosTabela(AAnamneseId);
     if LAnamnese.Id <= 0 then
       raise EConsultaNaoEncontrada.Create('Anamnese nao encontrada');
+    ValidarConsultaEditavel(LAnamnese.ConsultaId);
     LAnamnese.Apagar(AAnamneseId);
   finally
     LAnamnese.Free;
@@ -539,11 +623,15 @@ begin
   ValidarConsultaExiste(AConsultaId);
   LQuery := TDatabase.Query;
   LQuery.Clear;
-  LQuery.Add('SELECT REC_ID AS ID, REC_CONSULTA_ID AS CONSULTA_ID, REC_TITULO AS TITULO, ');
+  LQuery.Add('SELECT REC_ID AS ID, REC_CONSULTA_ID AS CONSULTA_ID, REC_TITULO AS TITULO, REC_MODO AS MODO, ');
   LQuery.Add('REC_OD_ESFERICO AS OD_ESFERICO, REC_OD_CILINDRICO AS OD_CILINDRICO, REC_OD_EIXO AS OD_EIXO, ');
   LQuery.Add('REC_OD_AV AS OD_AV, REC_OD_PRISMA AS OD_PRISMA, REC_OD_DNP AS OD_DNP, ');
   LQuery.Add('REC_OE_ESFERICO AS OE_ESFERICO, REC_OE_CILINDRICO AS OE_CILINDRICO, REC_OE_EIXO AS OE_EIXO, ');
   LQuery.Add('REC_OE_AV AS OE_AV, REC_OE_PRISMA AS OE_PRISMA, REC_OE_DNP AS OE_DNP, ');
+  LQuery.Add('REC_OD_PERTO_ESFERICO AS OD_PERTO_ESFERICO, REC_OD_PERTO_CILINDRICO AS OD_PERTO_CILINDRICO, ');
+  LQuery.Add('REC_OD_PERTO_EIXO AS OD_PERTO_EIXO, REC_OD_PERTO_AV AS OD_PERTO_AV, REC_OD_PERTO_PRISMA AS OD_PERTO_PRISMA, REC_OD_PERTO_DNP AS OD_PERTO_DNP, ');
+  LQuery.Add('REC_OE_PERTO_ESFERICO AS OE_PERTO_ESFERICO, REC_OE_PERTO_CILINDRICO AS OE_PERTO_CILINDRICO, ');
+  LQuery.Add('REC_OE_PERTO_EIXO AS OE_PERTO_EIXO, REC_OE_PERTO_AV AS OE_PERTO_AV, REC_OE_PERTO_PRISMA AS OE_PERTO_PRISMA, REC_OE_PERTO_DNP AS OE_PERTO_DNP, ');
   LQuery.Add('REC_ADICAO AS ADICAO, REC_LENTE AS LENTE, REC_RETORNO AS RETORNO, ');
   LQuery.Add('REC_OBSERVACOES AS OBSERVACOES, REC_DATA AS DATA ');
   LQuery.Add('FROM PRESCRICOES WHERE REC_CONSULTA_ID = :CONSULTA_ID ORDER BY REC_DATA DESC');
@@ -566,6 +654,7 @@ begin
     Result.AddPair('id', TJSONNumber.Create(LPrescricao.Id));
     Result.AddPair('consulta_id', TJSONNumber.Create(LPrescricao.ConsultaId));
     AddStringPair(Result, 'titulo', LPrescricao.Titulo);
+    AddStringPair(Result, 'modo', LPrescricao.Modo);
     AddStringPair(Result, 'od_esferico', LPrescricao.ODEsferico);
     AddStringPair(Result, 'od_cilindrico', LPrescricao.ODCilindrico);
     AddStringPair(Result, 'od_eixo', LPrescricao.ODEixo);
@@ -578,6 +667,18 @@ begin
     AddStringPair(Result, 'oe_av', LPrescricao.OEAv);
     AddStringPair(Result, 'oe_prisma', LPrescricao.OEPrisma);
     AddStringPair(Result, 'oe_dnp', LPrescricao.OEDnp);
+    AddStringPair(Result, 'od_perto_esferico', LPrescricao.ODPertoEsferico);
+    AddStringPair(Result, 'od_perto_cilindrico', LPrescricao.ODPertoCilindrico);
+    AddStringPair(Result, 'od_perto_eixo', LPrescricao.ODPertoEixo);
+    AddStringPair(Result, 'od_perto_av', LPrescricao.ODPertoAv);
+    AddStringPair(Result, 'od_perto_prisma', LPrescricao.ODPertoPrisma);
+    AddStringPair(Result, 'od_perto_dnp', LPrescricao.ODPertoDnp);
+    AddStringPair(Result, 'oe_perto_esferico', LPrescricao.OEPertoEsferico);
+    AddStringPair(Result, 'oe_perto_cilindrico', LPrescricao.OEPertoCilindrico);
+    AddStringPair(Result, 'oe_perto_eixo', LPrescricao.OEPertoEixo);
+    AddStringPair(Result, 'oe_perto_av', LPrescricao.OEPertoAv);
+    AddStringPair(Result, 'oe_perto_prisma', LPrescricao.OEPertoPrisma);
+    AddStringPair(Result, 'oe_perto_dnp', LPrescricao.OEPertoDnp);
     AddStringPair(Result, 'adicao', LPrescricao.Adicao);
     AddStringPair(Result, 'lente', LPrescricao.Lente);
     AddDatePair(Result, 'retorno', LPrescricao.Retorno);
@@ -606,6 +707,7 @@ begin
     LPrescricao.Id := LPrescricao.GeraCodigo('REC_ID');
     LPrescricao.ConsultaId := AConsultaId;
     LPrescricao.Titulo := JsonString(ADados, 'titulo', 'Prescricao para Oculos');
+    LPrescricao.Modo := JsonModoPrescricao(ADados);
     LPrescricao.ODEsferico := JsonString(ADados, 'od_esferico');
     LPrescricao.ODCilindrico := JsonString(ADados, 'od_cilindrico');
     LPrescricao.ODEixo := JsonString(ADados, 'od_eixo');
@@ -618,6 +720,18 @@ begin
     LPrescricao.OEAv := JsonString(ADados, 'oe_av');
     LPrescricao.OEPrisma := JsonString(ADados, 'oe_prisma');
     LPrescricao.OEDnp := JsonString(ADados, 'oe_dnp');
+    LPrescricao.ODPertoEsferico := JsonString(ADados, 'od_perto_esferico');
+    LPrescricao.ODPertoCilindrico := JsonString(ADados, 'od_perto_cilindrico');
+    LPrescricao.ODPertoEixo := JsonString(ADados, 'od_perto_eixo');
+    LPrescricao.ODPertoAv := JsonString(ADados, 'od_perto_av');
+    LPrescricao.ODPertoPrisma := JsonString(ADados, 'od_perto_prisma');
+    LPrescricao.ODPertoDnp := JsonString(ADados, 'od_perto_dnp');
+    LPrescricao.OEPertoEsferico := JsonString(ADados, 'oe_perto_esferico');
+    LPrescricao.OEPertoCilindrico := JsonString(ADados, 'oe_perto_cilindrico');
+    LPrescricao.OEPertoEixo := JsonString(ADados, 'oe_perto_eixo');
+    LPrescricao.OEPertoAv := JsonString(ADados, 'oe_perto_av');
+    LPrescricao.OEPertoPrisma := JsonString(ADados, 'oe_perto_prisma');
+    LPrescricao.OEPertoDnp := JsonString(ADados, 'oe_perto_dnp');
     LPrescricao.Adicao := JsonString(ADados, 'adicao');
     LPrescricao.Lente := JsonString(ADados, 'lente');
     LPrescricao.Retorno := JsonDate(ADados, 'retorno');
@@ -644,6 +758,7 @@ begin
       raise EConsultaNaoEncontrada.Create('Prescricao nao encontrada');
 
     LPrescricao.Titulo := JsonString(ADados, 'titulo', 'Prescricao para Oculos');
+    LPrescricao.Modo := JsonModoPrescricao(ADados);
     LPrescricao.ODEsferico := JsonString(ADados, 'od_esferico');
     LPrescricao.ODCilindrico := JsonString(ADados, 'od_cilindrico');
     LPrescricao.ODEixo := JsonString(ADados, 'od_eixo');
@@ -656,6 +771,18 @@ begin
     LPrescricao.OEAv := JsonString(ADados, 'oe_av');
     LPrescricao.OEPrisma := JsonString(ADados, 'oe_prisma');
     LPrescricao.OEDnp := JsonString(ADados, 'oe_dnp');
+    LPrescricao.ODPertoEsferico := JsonString(ADados, 'od_perto_esferico');
+    LPrescricao.ODPertoCilindrico := JsonString(ADados, 'od_perto_cilindrico');
+    LPrescricao.ODPertoEixo := JsonString(ADados, 'od_perto_eixo');
+    LPrescricao.ODPertoAv := JsonString(ADados, 'od_perto_av');
+    LPrescricao.ODPertoPrisma := JsonString(ADados, 'od_perto_prisma');
+    LPrescricao.ODPertoDnp := JsonString(ADados, 'od_perto_dnp');
+    LPrescricao.OEPertoEsferico := JsonString(ADados, 'oe_perto_esferico');
+    LPrescricao.OEPertoCilindrico := JsonString(ADados, 'oe_perto_cilindrico');
+    LPrescricao.OEPertoEixo := JsonString(ADados, 'oe_perto_eixo');
+    LPrescricao.OEPertoAv := JsonString(ADados, 'oe_perto_av');
+    LPrescricao.OEPertoPrisma := JsonString(ADados, 'oe_perto_prisma');
+    LPrescricao.OEPertoDnp := JsonString(ADados, 'oe_perto_dnp');
     LPrescricao.Adicao := JsonString(ADados, 'adicao');
     LPrescricao.Lente := JsonString(ADados, 'lente');
     LPrescricao.Retorno := JsonDate(ADados, 'retorno');
@@ -696,11 +823,17 @@ begin
   LQuery := TDatabase.Query;
   LQuery.Clear;
   LQuery.Add('SELECT DOC_ID AS ID, DOC_CONSULTA_ID AS CONSULTA_ID, DOC_PACIENTE_ID AS PACIENTE_ID, ');
-  LQuery.Add('DOC_TIPO AS TIPO, DOC_TITULO AS TITULO, DOC_NOME_ARQUIVO AS NOME, ');
-  LQuery.Add('DOC_CAMINHO_ARQUIVO AS URL, DOC_MIME_TYPE AS MIME_TYPE, DOC_TAMANHO AS TAMANHO, ');
-  LQuery.Add('DOC_DATA_UPLOAD AS DATA_UPLOAD ');
-  LQuery.Add('FROM DOCUMENTOS_CONSULTA WHERE DOC_CONSULTA_ID = :CONSULTA_ID ORDER BY DOC_DATA_UPLOAD DESC');
+  LQuery.Add('DOC_TIPO AS TIPO, DOC_TITULO AS TITULO, COALESCE(DOC_STATUS, ''rascunho'') AS STATUS, ');
+  LQuery.Add('COALESCE(DOC_VERSAO, 1) AS VERSAO, DOC_ORIGEM_ID AS ORIGEM_ID, ');
+  LQuery.Add('DOC_EMITIDO_POR AS EMITIDO_POR, DOC_EMITIDO_EM AS EMITIDO_EM, ');
+  LQuery.Add('DOC_ATUALIZADO_POR AS ATUALIZADO_POR, DOC_ATUALIZADO_EM AS ATUALIZADO_EM, ');
+  LQuery.Add('DOC_NOME_ARQUIVO AS NOME, ');
+  LQuery.Add('DOC_MIME_TYPE AS MIME_TYPE, DOC_TAMANHO AS TAMANHO, DOC_DATA_UPLOAD AS DATA_UPLOAD ');
+  LQuery.Add('FROM DOCUMENTOS_CONSULTA WHERE DOC_CONSULTA_ID = :CONSULTA_ID ');
+  LQuery.Add('AND (DOC_TIPO IS NULL OR DOC_TIPO <> :TIPO_ANEXO) ');
+  LQuery.Add('ORDER BY COALESCE(DOC_ATUALIZADO_EM, DOC_DATA_UPLOAD) DESC, DOC_ID DESC');
   LQuery.AddParam('CONSULTA_ID', AConsultaId);
+  LQuery.AddParam('TIPO_ANEXO', DOCUMENTO_ANEXO);
   LQuery.Open;
   Result := TDatasetJsonUtils.QueryToJSONArray(LQuery.DataSet);
 end;
@@ -722,35 +855,275 @@ begin
     AddStringPair(Result, 'tipo', LDocumento.Tipo);
     AddStringPair(Result, 'titulo', LDocumento.Titulo);
     AddStringPair(Result, 'nome', LDocumento.NomeArquivo);
-    AddStringPair(Result, 'url', LDocumento.CaminhoArquivo);
     AddStringPair(Result, 'mime_type', LDocumento.MimeType);
     Result.AddPair('tamanho', TJSONNumber.Create(LDocumento.Tamanho));
     AddDatePair(Result, 'data_upload', LDocumento.DataUpload);
+    AddStringPair(Result, 'conteudo', LDocumento.Conteudo);
+    if LDocumento.Status = '' then
+      Result.AddPair('status', DOCUMENTO_RASCUNHO)
+    else
+      Result.AddPair('status', LDocumento.Status);
+    if LDocumento.Versao <= 0 then
+      Result.AddPair('versao', TJSONNumber.Create(1))
+    else
+      Result.AddPair('versao', TJSONNumber.Create(LDocumento.Versao));
+    Result.AddPair('origem_id', TJSONNumber.Create(LDocumento.DocumentoOrigemId));
+    Result.AddPair('emitido_por', TJSONNumber.Create(LDocumento.EmitidoPor));
+    AddDatePair(Result, 'emitido_em', LDocumento.EmitidoEm);
+    Result.AddPair('atualizado_por', TJSONNumber.Create(LDocumento.AtualizadoPor));
+    AddDatePair(Result, 'atualizado_em', LDocumento.AtualizadoEm);
   finally
     LDocumento.Free;
   end;
 end;
 
-function TConsultaService.CriarDocumento(AConsultaId: Integer; ADados: TJSONObject): Integer;
+function TConsultaService.ObterDocumentoPorId(ADocumentoId: Integer): TJSONObject;
+begin
+  Result := DocumentoToJSON(ADocumentoId);
+end;
+
+function TConsultaService.CriarDocumento(AConsultaId, AUsuarioId: Integer; ADados: TJSONObject): Integer;
 var
   LDocumento: TModelDocumentoConsulta;
+  LOrigem: TModelDocumentoConsulta;
+  LTipo: string;
+  LOrigemId: Integer;
 begin
-  ValidarConsultaExiste(AConsultaId);
+  ValidarConsultaEditavel(AConsultaId);
   if not Assigned(ADados) then
     raise EConsultaValidacao.Create('Payload invalido');
+
+  LTipo := LowerCase(JsonString(ADados, 'tipo'));
+  if not TipoDocumentoPermitido(LTipo) then
+    raise EConsultaValidacao.Create('Tipo de documento invalido');
+  if JsonString(ADados, 'conteudo') = '' then
+    raise EConsultaValidacao.Create('Conteudo do documento e obrigatorio');
+
+  LOrigemId := JsonInt(ADados, 'origem_id');
 
   LDocumento := TModelDocumentoConsulta.Create(TDatabase.Connection);
   try
     LDocumento.Id := LDocumento.GeraCodigo('DOC_ID');
     LDocumento.ConsultaId := AConsultaId;
     LDocumento.PacienteId := ConsultaPacienteId(AConsultaId);
-    LDocumento.Tipo := JsonString(ADados, 'tipo', 'documento');
+    LDocumento.Tipo := LTipo;
     LDocumento.Titulo := JsonString(ADados, 'titulo');
     LDocumento.NomeArquivo := JsonString(ADados, 'nome', JsonString(ADados, 'nome_arquivo'));
     LDocumento.CaminhoArquivo := JsonString(ADados, 'url', JsonString(ADados, 'caminho_arquivo'));
     LDocumento.MimeType := JsonString(ADados, 'mime_type');
     LDocumento.Tamanho := JsonInt(ADados, 'tamanho');
     LDocumento.DataUpload := Now;
+    LDocumento.Conteudo := JsonString(ADados, 'conteudo');
+    LDocumento.Status := DOCUMENTO_RASCUNHO;
+    LDocumento.Versao := 1;
+    LDocumento.DocumentoOrigemId := 0;
+    LDocumento.AtualizadoPor := AUsuarioId;
+    LDocumento.AtualizadoEm := Now;
+
+    if LOrigemId > 0 then
+    begin
+      LOrigem := TModelDocumentoConsulta.Create(TDatabase.Connection);
+      try
+        LOrigem.BuscaDadosTabela(LOrigemId);
+        if (LOrigem.Id <= 0) or (LOrigem.ConsultaId <> AConsultaId) then
+          raise EConsultaValidacao.Create('Documento de origem invalido');
+        if LowerCase(LOrigem.Status) <> DOCUMENTO_EMITIDO then
+          raise EConsultaValidacao.Create('Somente documentos emitidos podem gerar nova versao');
+        LDocumento.DocumentoOrigemId := LOrigem.Id;
+        if LOrigem.DocumentoOrigemId > 0 then
+          LDocumento.DocumentoOrigemId := LOrigem.DocumentoOrigemId;
+        LDocumento.Versao := LOrigem.Versao + 1;
+      finally
+        LOrigem.Free;
+      end;
+    end;
+
+    LDocumento.SalvaNoBanco(1);
+    Result := LDocumento.Id;
+  finally
+    LDocumento.Free;
+  end;
+end;
+
+procedure TConsultaService.AtualizarDocumento(ADocumentoId, AUsuarioId: Integer; ADados: TJSONObject);
+var
+  LDocumento: TModelDocumentoConsulta;
+  LTipo, LNome, LURL: string;
+begin
+  if not Assigned(ADados) then
+    raise EConsultaValidacao.Create('Payload invalido');
+
+  LDocumento := TModelDocumentoConsulta.Create(TDatabase.Connection);
+  try
+    LDocumento.BuscaDadosTabela(ADocumentoId);
+    if LDocumento.Id <= 0 then
+      raise EConsultaNaoEncontrada.Create('Documento nao encontrado');
+    ValidarConsultaEditavel(LDocumento.ConsultaId);
+
+    if SameText(Trim(LDocumento.Tipo), DOCUMENTO_ANEXO) then
+    begin
+      LNome := JsonString(ADados, 'nome', LDocumento.NomeArquivo);
+      LURL := JsonString(ADados, 'url', LDocumento.CaminhoArquivo);
+      if (LNome = '') or (Length(LNome) > 255) then
+        raise EConsultaValidacao.Create('Nome do documento invalido');
+      if (Length(LURL) > 500) or
+        ((not StartsText('https://', LURL)) and
+         (not StartsText('http://', LURL))) then
+        raise EConsultaValidacao.Create(
+          'Informe um link valido iniciado por http:// ou https://');
+      LDocumento.Titulo := JsonString(ADados, 'titulo', LNome);
+      LDocumento.NomeArquivo := LNome;
+      LDocumento.CaminhoArquivo := LURL;
+      LDocumento.AtualizadoPor := AUsuarioId;
+      LDocumento.AtualizadoEm := Now;
+      LDocumento.SalvaNoBanco(1);
+      Exit;
+    end;
+
+    if (LDocumento.Status <> '') and
+      (LowerCase(LDocumento.Status) <> DOCUMENTO_RASCUNHO) then
+      raise EConsultaValidacao.Create('Documento emitido nao pode ser alterado; crie uma nova versao');
+
+    LTipo := LowerCase(JsonString(ADados, 'tipo', LDocumento.Tipo));
+    if not TipoDocumentoPermitido(LTipo) then
+      raise EConsultaValidacao.Create('Tipo de documento invalido');
+    if JsonString(ADados, 'conteudo') = '' then
+      raise EConsultaValidacao.Create('Conteudo do documento e obrigatorio');
+
+    LDocumento.Tipo := LTipo;
+    LDocumento.Titulo := JsonString(ADados, 'titulo', LDocumento.Titulo);
+    LDocumento.Conteudo := JsonString(ADados, 'conteudo');
+    LDocumento.Status := DOCUMENTO_RASCUNHO;
+    if LDocumento.Versao <= 0 then
+      LDocumento.Versao := 1;
+    LDocumento.AtualizadoPor := AUsuarioId;
+    LDocumento.AtualizadoEm := Now;
+    LDocumento.SalvaNoBanco(1);
+  finally
+    LDocumento.Free;
+  end;
+end;
+
+procedure TConsultaService.EmitirDocumento(ADocumentoId, AUsuarioId: Integer);
+var
+  LDocumento: TModelDocumentoConsulta;
+  LAnterior: TModelDocumentoConsulta;
+  LQuery: iQuery;
+  LAnteriorId: Integer;
+begin
+  LAnteriorId := 0;
+  LDocumento := TModelDocumentoConsulta.Create(TDatabase.Connection);
+  try
+    LDocumento.BuscaDadosTabela(ADocumentoId);
+    if LDocumento.Id <= 0 then
+      raise EConsultaNaoEncontrada.Create('Documento nao encontrado');
+    ValidarConsultaEditavel(LDocumento.ConsultaId);
+    if (LDocumento.Status <> '') and
+      (LowerCase(LDocumento.Status) <> DOCUMENTO_RASCUNHO) then
+      raise EConsultaValidacao.Create('Documento ja foi emitido');
+    if Trim(LDocumento.Conteudo) = '' then
+      raise EConsultaValidacao.Create('Conteudo do documento e obrigatorio');
+
+    if LDocumento.DocumentoOrigemId > 0 then
+    begin
+      LQuery := TDatabase.Query;
+      LQuery.Clear;
+      LQuery.Add('SELECT FIRST 1 DOC_ID FROM DOCUMENTOS_CONSULTA ');
+      LQuery.Add('WHERE DOC_CONSULTA_ID = :CONSULTA_ID AND DOC_STATUS = :STATUS ');
+      LQuery.Add('AND (DOC_ID = :ORIGEM_ID OR DOC_ORIGEM_ID = :ORIGEM_ID) ');
+      LQuery.Add('ORDER BY COALESCE(DOC_VERSAO, 1) DESC');
+      LQuery.AddParam('CONSULTA_ID', LDocumento.ConsultaId);
+      LQuery.AddParam('STATUS', DOCUMENTO_EMITIDO);
+      LQuery.AddParam('ORIGEM_ID', LDocumento.DocumentoOrigemId);
+      LQuery.Open;
+      if not LQuery.DataSet.IsEmpty then
+        LAnteriorId := LQuery.DataSet.Fields[0].AsInteger;
+    end;
+
+    LDocumento.Status := DOCUMENTO_EMITIDO;
+    LDocumento.EmitidoPor := AUsuarioId;
+    LDocumento.EmitidoEm := Now;
+    LDocumento.AtualizadoPor := AUsuarioId;
+    LDocumento.AtualizadoEm := Now;
+    LDocumento.SalvaNoBanco(1);
+
+    if LAnteriorId > 0 then
+    begin
+      LAnterior := TModelDocumentoConsulta.Create(TDatabase.Connection);
+      try
+        LAnterior.BuscaDadosTabela(LAnteriorId);
+        if (LAnterior.Id > 0) and (LowerCase(LAnterior.Status) = DOCUMENTO_EMITIDO) then
+        begin
+          LAnterior.Status := DOCUMENTO_SUBSTITUIDO;
+          LAnterior.AtualizadoPor := AUsuarioId;
+          LAnterior.AtualizadoEm := Now;
+          LAnterior.SalvaNoBanco(1);
+        end;
+      finally
+        LAnterior.Free;
+      end;
+    end;
+  finally
+    LDocumento.Free;
+  end;
+end;
+
+function TConsultaService.ImpressaoDocumento(ADocumentoId: Integer): TJSONObject;
+begin
+  Result := DocumentoToJSON(ADocumentoId);
+  Result.AddPair('modelo', 'impressao documento clinico');
+end;
+
+function TConsultaService.ListarAnexos(AConsultaId: Integer): TJSONArray;
+var
+  LQuery: iQuery;
+begin
+  ValidarConsultaExiste(AConsultaId);
+  LQuery := TDatabase.Query;
+  LQuery.Clear;
+  LQuery.Add('SELECT DOC_ID AS ID, DOC_CONSULTA_ID AS CONSULTA_ID, DOC_PACIENTE_ID AS PACIENTE_ID, ');
+  LQuery.Add('DOC_TITULO AS TITULO, DOC_NOME_ARQUIVO AS NOME, DOC_CAMINHO_ARQUIVO AS URL, ');
+  LQuery.Add('DOC_DATA_UPLOAD AS DATA_UPLOAD, DOC_STATUS AS STATUS, DOC_CRIADO_POR AS CRIADO_POR ');
+  LQuery.Add('FROM DOCUMENTOS_CONSULTA WHERE DOC_CONSULTA_ID = :CONSULTA_ID AND DOC_TIPO = :TIPO ');
+  LQuery.Add('ORDER BY DOC_DATA_UPLOAD DESC, DOC_ID DESC');
+  LQuery.AddParam('CONSULTA_ID', AConsultaId);
+  LQuery.AddParam('TIPO', DOCUMENTO_ANEXO);
+  LQuery.Open;
+  Result := TDatasetJsonUtils.QueryToJSONArray(LQuery.DataSet);
+end;
+
+function TConsultaService.CriarAnexo(AConsultaId, AUsuarioId: Integer;
+  ADados: TJSONObject): Integer;
+var
+  LDocumento: TModelDocumentoConsulta;
+  LNome, LURL: string;
+begin
+  ValidarConsultaEditavel(AConsultaId);
+  if not Assigned(ADados) then
+    raise EConsultaValidacao.Create('Payload invalido');
+
+  LNome := JsonString(ADados, 'nome');
+  LURL := JsonString(ADados, 'url');
+  if (LNome = '') or (Length(LNome) > 255) then
+    raise EConsultaValidacao.Create('Nome do documento invalido');
+  if (Length(LURL) > 500) or
+    ((not StartsText('https://', LURL)) and (not StartsText('http://', LURL))) then
+    raise EConsultaValidacao.Create('Informe um link valido iniciado por http:// ou https://');
+
+  LDocumento := TModelDocumentoConsulta.Create(TDatabase.Connection);
+  try
+    LDocumento.Id := LDocumento.GeraCodigo('DOC_ID');
+    LDocumento.ConsultaId := AConsultaId;
+    LDocumento.PacienteId := ConsultaPacienteId(AConsultaId);
+    LDocumento.Tipo := DOCUMENTO_ANEXO;
+    LDocumento.Titulo := LNome;
+    LDocumento.NomeArquivo := LNome;
+    LDocumento.CaminhoArquivo := LURL;
+    LDocumento.DataUpload := Now;
+    LDocumento.Status := ANEXO_VINCULADO;
+    LDocumento.CriadoPor := AUsuarioId;
+    LDocumento.AtualizadoPor := AUsuarioId;
+    LDocumento.AtualizadoEm := Now;
     LDocumento.SalvaNoBanco(1);
     Result := LDocumento.Id;
   finally

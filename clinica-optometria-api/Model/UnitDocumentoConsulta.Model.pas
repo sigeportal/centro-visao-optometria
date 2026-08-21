@@ -20,6 +20,15 @@ type
     FMimeType: string;
     FTamanho: Int64;
     FDataUpload: TDateTime;
+    FConteudo: string;
+    FStatus: string;
+    FVersao: Integer;
+    FDocumentoOrigemId: Integer;
+    FEmitidoPor: Integer;
+    FEmitidoEm: TDateTime;
+    FAtualizadoPor: Integer;
+    FAtualizadoEm: TDateTime;
+    FCriadoPor: Integer;
   public
     [TCampo('DOC_ID', 'INTEGER NOT NULL PRIMARY KEY')]
     property Id: Integer read FId write FId;
@@ -50,6 +59,33 @@ type
 
     [TCampo('DOC_DATA_UPLOAD', 'TIMESTAMP')]
     property DataUpload: TDateTime read FDataUpload write FDataUpload;
+
+    [TCampo('DOC_CONTEUDO', 'BLOB SUB_TYPE TEXT')]
+    property Conteudo: string read FConteudo write FConteudo;
+
+    [TCampo('DOC_STATUS', 'VARCHAR(20)')]
+    property Status: string read FStatus write FStatus;
+
+    [TCampo('DOC_VERSAO', 'INTEGER')]
+    property Versao: Integer read FVersao write FVersao;
+
+    [TCampo('DOC_ORIGEM_ID', 'INTEGER')]
+    property DocumentoOrigemId: Integer read FDocumentoOrigemId write FDocumentoOrigemId;
+
+    [TCampo('DOC_EMITIDO_POR', 'INTEGER')]
+    property EmitidoPor: Integer read FEmitidoPor write FEmitidoPor;
+
+    [TCampo('DOC_EMITIDO_EM', 'TIMESTAMP')]
+    property EmitidoEm: TDateTime read FEmitidoEm write FEmitidoEm;
+
+    [TCampo('DOC_ATUALIZADO_POR', 'INTEGER')]
+    property AtualizadoPor: Integer read FAtualizadoPor write FAtualizadoPor;
+
+    [TCampo('DOC_ATUALIZADO_EM', 'TIMESTAMP')]
+    property AtualizadoEm: TDateTime read FAtualizadoEm write FAtualizadoEm;
+
+    [TCampo('DOC_CRIADO_POR', 'INTEGER')]
+    property CriadoPor: Integer read FCriadoPor write FCriadoPor;
   end;
 
 implementation

@@ -24,6 +24,7 @@ type
     Fordem: Integer;
     Fexibe_tela: Integer;
     Fexibe_impressao: Integer;
+    Fobrigatoria: Integer;
   published
     property id: Integer read Fid write Fid;
     property chave: string read Fchave write Fchave;
@@ -32,6 +33,7 @@ type
     property ordem: Integer read Fordem write Fordem;
     property exibe_tela: Integer read Fexibe_tela write Fexibe_tela;
     property exibe_impressao: Integer read Fexibe_impressao write Fexibe_impressao;
+    property obrigatoria: Integer read Fobrigatoria write Fobrigatoria;
   end;
 
   TFichaSecaoAtivoRequest = class
@@ -57,16 +59,18 @@ uses
   System.JSON,
   Horse.Commons,
   Horse.GBSwagger,
+  Autorizacao.Middleware,
+  Autorizacao.Service,
   FichaClinica.Service,
   Response.Utils,
   Logger.Utils;
 
 class procedure TFichaClinicaController.Registrar;
 begin
-  THorse.Group.Prefix('/v1/ficha-clinica').Get('/secoes', ListarSecoes);
-  THorse.Group.Prefix('/v1/ficha-clinica').Put('/secoes/ordem', AtualizarOrdem);
-  THorse.Group.Prefix('/v1/ficha-clinica').Patch('/secoes/:id/ativo', AtualizarAtivo);
-  THorse.Group.Prefix('/v1/ficha-clinica').Patch('/secoes/:id/exibicao', AtualizarExibicao);
+  THorse.Group.Prefix('/v1/ficha-clinica').Get('/secoes', AutorizarRota(PERM_FICHA_CONFIGURAR, ListarSecoes));
+  THorse.Group.Prefix('/v1/ficha-clinica').Put('/secoes/ordem', AutorizarRota(PERM_FICHA_CONFIGURAR, AtualizarOrdem));
+  THorse.Group.Prefix('/v1/ficha-clinica').Patch('/secoes/:id/ativo', AutorizarRota(PERM_FICHA_CONFIGURAR, AtualizarAtivo));
+  THorse.Group.Prefix('/v1/ficha-clinica').Patch('/secoes/:id/exibicao', AutorizarRota(PERM_FICHA_CONFIGURAR, AtualizarExibicao));
 end;
 
 class procedure TFichaClinicaController.ListarSecoes(Req: THorseRequest; Res: THorseResponse; Next: TProc);
