@@ -8,6 +8,7 @@ import {
   Phone, 
   MapPin, 
   Calendar,
+  CalendarClock,
   Loader2,
   ClipboardList,
   Files,
@@ -19,6 +20,7 @@ import { adaptPatient, calculateAge, patientPayload } from '../../domain/pacient
 
 import DadosPessoaisTab from './components/DadosPessoaisTab';
 import HistoricoConsultasTab from './components/HistoricoConsultasTab';
+import RetornosPacienteTab from './components/RetornosPacienteTab';
 import AnamnesesPacienteTab from './components/AnamnesesPacienteTab';
 import DocumentosPacienteTab from './components/DocumentosPacienteTab';
 import ToastNotification from '../Common/ToastNotification';
@@ -111,6 +113,7 @@ export default function PacienteHistoricoView({
     { id: 'pessoais', label: 'Dados Pessoais', icon: User },
     { id: 'anamnese', label: 'Anamnese', icon: ClipboardList },
     { id: 'consultas', label: 'Consultas', icon: Calendar },
+    { id: 'retornos', label: 'Retornos', icon: CalendarClock },
     { id: 'documentos', label: 'Documentos', icon: Files },
     { id: 'financeiro', label: 'Financeiro do Paciente', icon: DollarSign, available: false }
   ];
@@ -236,6 +239,10 @@ export default function PacienteHistoricoView({
         <HistoricoConsultasTab
           patient={patient}
         />
+      )}
+
+      {activeTab === 'retornos' && (
+        <RetornosPacienteTab patient={patient} />
       )}
 
       {activeTab === 'anamnese' && (

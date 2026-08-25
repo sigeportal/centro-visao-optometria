@@ -60,6 +60,7 @@ export default function NovoAgendamentoModal({
   const [showPatientResults, setShowPatientResults] = useState(false);
   const [saving, setSaving] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
+  const patientLocked = Boolean(initialData?.lockPatient);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -145,6 +146,7 @@ export default function NovoAgendamentoModal({
   };
 
   const handlePatientInput = (value) => {
+    if (patientLocked) return;
     setPatientQuery(value);
     setSelectedPatient(null);
     setErrorMessage('');
@@ -216,6 +218,9 @@ export default function NovoAgendamentoModal({
           <div className="relative">
             <label htmlFor="appointment-patient" className="clinical-label">
               Paciente <span className="text-rose-600">*</span>
+              {patientLocked && (
+                <span className="ml-1.5 text-forest-700 font-semibold">(preenchido pelo retorno)</span>
+              )}
             </label>
             <div className="relative">
               <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
@@ -225,8 +230,9 @@ export default function NovoAgendamentoModal({
                 autoComplete="off"
                 value={patientQuery}
                 onChange={(event) => handlePatientInput(event.target.value)}
-                onFocus={() => setShowPatientResults(true)}
-                className="clinical-input !pl-10 pr-10 font-bold"
+                onFocus={() => !patientLocked && setShowPatientResults(true)}
+                readOnly={patientLocked}
+                className={`clinical-input !pl-10 pr-10 font-bold ${patientLocked ? 'bg-slate-50 cursor-not-allowed' : ''}`}
                 placeholder="Pesquise por nome, CPF ou telefone..."
               />
               {searchingPatients && <Loader2 className="absolute right-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-forest-700 animate-spin" />}
@@ -348,4 +354,3 @@ export default function NovoAgendamentoModal({
     document.body,
   );
 }
-

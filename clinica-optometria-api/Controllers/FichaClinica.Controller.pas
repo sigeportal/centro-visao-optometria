@@ -13,6 +13,7 @@ type
     class procedure AtualizarOrdem(Req: THorseRequest; Res: THorseResponse; Next: TProc);
     class procedure AtualizarAtivo(Req: THorseRequest; Res: THorseResponse; Next: TProc);
     class procedure AtualizarExibicao(Req: THorseRequest; Res: THorseResponse; Next: TProc);
+    class procedure SalvarConfiguracaoCompleta(Req: THorseRequest; Res: THorseResponse; Next: TProc);
   end;
 
   TFichaSecaoResponse = class
@@ -67,7 +68,8 @@ uses
 
 class procedure TFichaClinicaController.Registrar;
 begin
-  THorse.Group.Prefix('/v1/ficha-clinica').Get('/secoes', AutorizarRota(PERM_FICHA_CONFIGURAR, ListarSecoes));
+  THorse.Group.Prefix('/v1/ficha-clinica').Get('/secoes', AutorizarRota(PERM_CLINICO_CONSULTAR, ListarSecoes));
+  THorse.Group.Prefix('/v1/ficha-clinica').Put('/secoes', AutorizarRota(PERM_FICHA_CONFIGURAR, SalvarConfiguracaoCompleta));
   THorse.Group.Prefix('/v1/ficha-clinica').Put('/secoes/ordem', AutorizarRota(PERM_FICHA_CONFIGURAR, AtualizarOrdem));
   THorse.Group.Prefix('/v1/ficha-clinica').Patch('/secoes/:id/ativo', AutorizarRota(PERM_FICHA_CONFIGURAR, AtualizarAtivo));
   THorse.Group.Prefix('/v1/ficha-clinica').Patch('/secoes/:id/exibicao', AutorizarRota(PERM_FICHA_CONFIGURAR, AtualizarExibicao));
@@ -244,6 +246,54 @@ begin
   end;
 end;
 
+class procedure TFichaClinicaController.SalvarConfiguracaoCompleta(Req: THorseRequest; Res: THorseResponse; Next: TProc);
+var
+  Service: TFichaClinicaService;
+  LBody: TJSONObject;
+  LSecoesValue: TJSONValue;
+  LArraySecoes: TJSONArray;
+begin
+  Service := TFichaClinicaService.Create;
+  try
+    try
+      LArraySecoes := nil;
+      LBody := Req.Body<TJSONObject>;
+      if Assigned(LBody) then
+      begin
+        LSecoesValue := LBody.GetValue('secoes');
+        if LSecoesValue is TJSONArray then
+          LArraySecoes := LSecoesValue as TJSONArray;
+      end;
+
+      if not Assigned(LArraySecoes) then
+      begin
+        LArraySecoes := Req.Body<TJSONArray>;
+      end;
+
+      if (not Assigned(LArraySecoes)) or (LArraySecoes.Count = 0) then
+      begin
+        Res.Send<TJSONObject>(TResponseUtils.Error('Informe a lista de secoes a configurar', 422))
+          .Status(THTTPStatus.UnprocessableEntity);
+        Exit;
+      end;
+
+      Service.SalvarConfiguracaoCompleta(LArraySecoes);
+      Res.Send<TJSONObject>(
+        TResponseUtils.Success('Configuracao da ficha clinica salva com sucesso', Service.ListarSecoes)
+      ).Status(THTTPStatus.OK);
+    except
+      on E: Exception do
+      begin
+        TLogger.Error('FichaClinicaController.SalvarConfiguracaoCompleta', E);
+        Res.Send<TJSONObject>(TResponseUtils.Error(E.Message, 422))
+          .Status(THTTPStatus.UnprocessableEntity);
+      end;
+    end;
+  finally
+    Service.Free;
+  end;
+end;
+
 initialization
   Swagger
     .BasePath('v1')
@@ -255,6 +305,13 @@ initialization
           .IsArray(True)
         .&End
         .AddResponse(500, 'Erro interno ao listar secoes').&End
+      .&End
+      .PUT('Salvar configuracao completa das secoes', 'Persiste a lista completa de secoes com suas configuracoes de ordem, ativo, exibe_tela e exibe_impressao')
+        .AddResponse(200, 'Configuracao salva com sucesso')
+          .Schema(TFichaSecaoResponse)
+          .IsArray(True)
+        .&End
+        .AddResponse(422, 'Dados invalidos').&End
       .&End
     .&End
     .Path('ficha-clinica/secoes/ordem')

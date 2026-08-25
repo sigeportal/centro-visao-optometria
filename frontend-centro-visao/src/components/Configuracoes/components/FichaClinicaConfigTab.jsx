@@ -1,51 +1,119 @@
-import React, { useState } from 'react';
-import { 
-  GripVertical, 
-  ArrowUp, 
-  ArrowDown, 
-  Eye, 
-  EyeOff, 
-  RotateCcw, 
-  Save 
+import React, { useState, useEffect } from 'react';
+import {
+  GripVertical,
+  ArrowUp,
+  ArrowDown,
+  Eye,
+  EyeOff,
+  RotateCcw,
+  Save,
+  Loader2,
+  AlertCircle
 } from 'lucide-react';
 import ToggleSwitch from '../../Common/ToggleSwitch';
-import { 
-  DEFAULT_CLINICAL_SECTIONS, 
-  saveStoredClinicalSections 
+import {
+  DEFAULT_CLINICAL_SECTIONS,
+  getStoredClinicalSections,
+  saveStoredClinicalSections,
+  normalizeFromApi,
+  normalizeToApi
 } from '../../../data/clinicalSectionsConfig';
+import {
+  listarSecoesFicha,
+  salvarConfiguracaoCompletaFicha
+} from '../../../api/fichaClinica';
 
-export default function FichaClinicaConfigTab({ 
-  clinicalSections, 
-  setClinicalSections, 
-  onShowSuccess 
+export default function FichaClinicaConfigTab({
+  clinicalSections,
+  setClinicalSections,
+  onShowSuccess
 }) {
   const [draggedIndex, setDraggedIndex] = useState(null);
   const [dragOverIndex, setDragOverIndex] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [errorMessage, setErrorMessage] = useState('');
 
-  // Toggle individual section
+  // Carrega configurações da API ao montar o componente
+  useEffect(() => {
+    let isMounted = true;
+    const controller = new AbortController();
+
+    async function loadSectionsFromBackend() {
+      setLoading(true);
+      setErrorMessage('');
+      try {
+        const apiSections = await listarSecoesFicha({ signal: controller.signal });
+        if (isMounted && Array.isArray(apiSections) && apiSections.length > 0) {
+          const normalized = normalizeFromApi(apiSections);
+          setClinicalSections(normalized);
+          saveStoredClinicalSections(normalized);
+        }
+      } catch (err) {
+        if (err?.name !== 'CanceledError' && err?.code !== 'ERR_CANCELED') {
+          console.warn('Não foi possível carregar da API, usando armazenamento local:', err);
+        }
+      } finally {
+        if (isMounted) setLoading(false);
+      }
+    }
+
+    loadSectionsFromBackend();
+
+    return () => {
+      isMounted = false;
+      controller.abort();
+    };
+  }, [setClinicalSections]);
+
+  // Alternar visibilidade de seção individual
   const handleToggleSection = (id) => {
     setClinicalSections(prev => 
-      prev.map(sec => sec.id === id ? { ...sec, enabled: !sec.enabled } : sec)
+      prev.map(sec => sec.id === id
+        ? { ...sec, enabled: !sec.enabled, exibeTela: !sec.enabled }
+        : sec)
     );
   };
 
-  // Toggle all sections
+  // Alternar visibilidade de todas as seções
   const handleToggleAll = (enableState) => {
     setClinicalSections(prev => 
-      prev.map(sec => ({ ...sec, enabled: enableState }))
+      prev.map(sec => ({ ...sec, enabled: enableState, exibeTela: enableState }))
     );
   };
 
-  // Reset to default configuration and order
-  const handleResetDefaults = () => {
-    if (window.confirm("Deseja restaurar a ordem e configurações padrão da Ficha Clínica?")) {
-      setClinicalSections(DEFAULT_CLINICAL_SECTIONS);
-      saveStoredClinicalSections(DEFAULT_CLINICAL_SECTIONS);
-      onShowSuccess();
+  // Restaurar padrão original
+  const handleResetDefaults = async () => {
+    if (window.confirm('Deseja restaurar a ordem e todas as seções padrão da Ficha Clínica?')) {
+      const resetSections = DEFAULT_CLINICAL_SECTIONS.map((sec, index) => ({
+        ...sec,
+        enabled: true,
+        exibeTela: true,
+        exibeImpressao: true,
+        ordem: index + 1,
+      }));
+      setClinicalSections(resetSections);
+      setErrorMessage('');
+
+      setSaving(true);
+      try {
+        const response = await salvarConfiguracaoCompletaFicha(normalizeToApi(resetSections));
+        const savedSections = Array.isArray(response) && response.length > 0
+          ? normalizeFromApi(response)
+          : resetSections;
+        setClinicalSections(savedSections);
+        saveStoredClinicalSections(savedSections);
+        onShowSuccess?.();
+      } catch (err) {
+        console.error('Erro ao restaurar configuração da ficha clínica:', err);
+        setErrorMessage(err?.response?.data?.error?.message || 'Não foi possível restaurar a configuração da ficha clínica.');
+      } finally {
+        setSaving(false);
+      }
     }
   };
 
-  // Move section Up / Down
+  // Mover seção para Cima / Baixo
   const handleMove = (index, direction) => {
     const targetIndex = index + direction;
     if (targetIndex < 0 || targetIndex >= clinicalSections.length) return;
@@ -89,10 +157,26 @@ export default function FichaClinicaConfigTab({
     setDragOverIndex(null);
   };
 
-  // Save changes
-  const handleSaveClinicalConfig = () => {
-    saveStoredClinicalSections(clinicalSections);
-    onShowSuccess();
+  // Salvar alterações
+  const handleSaveClinicalConfig = async () => {
+    setSaving(true);
+    setErrorMessage('');
+
+    try {
+      const apiPayload = normalizeToApi(clinicalSections);
+      const res = await salvarConfiguracaoCompletaFicha(apiPayload);
+      if (Array.isArray(res) && res.length > 0) {
+        const normalized = normalizeFromApi(res);
+        setClinicalSections(normalized);
+        saveStoredClinicalSections(normalized);
+      }
+      onShowSuccess?.();
+    } catch (err) {
+      console.error('Erro ao salvar configuração da ficha clínica na API:', err);
+      setErrorMessage(err?.response?.data?.error?.message || 'Não foi possível salvar a configuração da ficha clínica.');
+    } finally {
+      setSaving(false);
+    }
   };
 
   const activeCount = clinicalSections.filter(s => s.enabled).length;
@@ -101,6 +185,14 @@ export default function FichaClinicaConfigTab({
   return (
     <div className="space-y-4 animate-fade-in text-xs">
       
+      {/* Alerta de erro caso ocorra */}
+      {errorMessage && (
+        <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-rose-700 flex items-center gap-2">
+          <AlertCircle className="w-4 h-4 shrink-0" />
+          <span>{errorMessage}</span>
+        </div>
+      )}
+
       {/* Action & Info Control Bar */}
       <div className="clinical-panel p-4 sm:p-5 flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
@@ -111,6 +203,12 @@ export default function FichaClinicaConfigTab({
             <span className="bg-forest-50 text-forest-800 border border-forest-200 text-[10px] font-mono font-bold px-2.5 py-0.5 rounded-full uppercase">
               {activeCount} de {totalCount} Ativos
             </span>
+            {loading && (
+              <span className="flex items-center gap-1 text-[11px] text-slate-400">
+                <Loader2 className="w-3.5 h-3.5 animate-spin text-forest-700" />
+                Carregando...
+              </span>
+            )}
           </div>
           <p className="text-[11px] text-slate-400 mt-1">
             Ative ou desative seções e <strong>arraste pelo ícone (⋮⋮)</strong> para reorganizar a ordem de exibição durante o atendimento.
@@ -121,7 +219,8 @@ export default function FichaClinicaConfigTab({
           <button
             type="button"
             onClick={() => handleToggleAll(true)}
-            className="btn-secondary py-1.5 px-3"
+            disabled={saving || loading}
+            className="btn-secondary py-1.5 px-3 disabled:opacity-50"
           >
             <Eye className="w-3.5 h-3.5" />
             <span>Ativar Todos</span>
@@ -130,7 +229,8 @@ export default function FichaClinicaConfigTab({
           <button
             type="button"
             onClick={() => handleToggleAll(false)}
-            className="btn-secondary py-1.5 px-3"
+            disabled={saving || loading}
+            className="btn-secondary py-1.5 px-3 disabled:opacity-50"
           >
             <EyeOff className="w-3.5 h-3.5" />
             <span>Ocultar Todos</span>
@@ -139,7 +239,8 @@ export default function FichaClinicaConfigTab({
           <button
             type="button"
             onClick={handleResetDefaults}
-            className="btn-secondary py-1.5 px-3"
+            disabled={saving || loading}
+            className="btn-secondary py-1.5 px-3 disabled:opacity-50"
           >
             <RotateCcw className="w-3.5 h-3.5" />
             <span>Restaurar Padrão</span>
@@ -148,10 +249,11 @@ export default function FichaClinicaConfigTab({
           <button
             type="button"
             onClick={handleSaveClinicalConfig}
-            className="btn-primary py-1.5 px-3.5"
+            disabled={saving || loading}
+            className="btn-primary py-1.5 px-3.5 disabled:opacity-50"
           >
-            <Save className="w-3.5 h-3.5" />
-            <span>Salvar Ficha</span>
+            {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+            <span>{saving ? 'Salvando...' : 'Salvar Ficha'}</span>
           </button>
         </div>
       </div>
@@ -216,7 +318,7 @@ export default function FichaClinicaConfigTab({
                 <div className="flex items-center space-x-0.5 border border-slate-200 rounded-xl bg-slate-50 p-0.5">
                   <button
                     type="button"
-                    disabled={index === 0}
+                    disabled={index === 0 || saving}
                     onClick={() => handleMove(index, -1)}
                     title="Mover para Cima"
                     className="p-1 rounded-lg hover:bg-slate-200 text-slate-600 disabled:opacity-30 disabled:hover:bg-transparent transition-colors"
@@ -225,7 +327,7 @@ export default function FichaClinicaConfigTab({
                   </button>
                   <button
                     type="button"
-                    disabled={index === clinicalSections.length - 1}
+                    disabled={index === clinicalSections.length - 1 || saving}
                     onClick={() => handleMove(index, 1)}
                     title="Mover para Baixo"
                     className="p-1 rounded-lg hover:bg-slate-200 text-slate-600 disabled:opacity-30 disabled:hover:bg-transparent transition-colors"
@@ -259,15 +361,16 @@ export default function FichaClinicaConfigTab({
       {/* Bottom Save Bar */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-50/80 p-3.5 sm:p-4 border border-slate-200/80 rounded-2xl shadow-hairline">
         <span className="text-xs text-slate-600 font-medium">
-          💡 As alterações aplicadas aqui são refletidas imediatamente na tela de atendimento dos pacientes.
+          💡 Após salvar, as alterações são refletidas na tela de atendimento dos pacientes.
         </span>
         <button
           type="button"
           onClick={handleSaveClinicalConfig}
-          className="btn-primary py-2 px-4"
+          disabled={saving || loading}
+          className="btn-primary py-2 px-4 disabled:opacity-50"
         >
-          <Save className="w-4 h-4" />
-          <span>Salvar Alterações</span>
+          {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+          <span>{saving ? 'Salvando...' : 'Salvar Alterações'}</span>
         </button>
       </div>
 

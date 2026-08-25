@@ -15,6 +15,7 @@ type
     procedure AtualizarOrdem(ASecoes: TJSONArray);
     procedure AtualizarAtivo(AId: Integer; AAtivo: Boolean);
     procedure AtualizarExibicao(AId: Integer; AExibeTela, AExibeImpressao: Integer);
+    procedure SalvarConfiguracaoCompleta(ASecoes: TJSONArray);
   end;
 
 implementation
@@ -211,6 +212,86 @@ begin
     if AExibeImpressao >= 0 then
       LSecao.ExibeImpressao := AExibeImpressao;
     LSecao.SalvaNoBanco(1);
+  finally
+    LSecao.Free;
+  end;
+end;
+
+procedure TFichaClinicaService.SalvarConfiguracaoCompleta(ASecoes: TJSONArray);
+var
+  LSecao: TModelFichaSecao;
+  LItem: TJSONObject;
+  I, LId, LOrdem: Integer;
+  LChave: string;
+  LQuery: iQuery;
+  LValue: TJSONValue;
+begin
+  if (not Assigned(ASecoes)) or (ASecoes.Count = 0) then
+    raise Exception.Create('Informe as secoes para atualizar a configuracao');
+
+  GarantirSecoesIniciais;
+
+  LSecao := TModelFichaSecao.Create(TDatabase.Connection);
+  try
+    for I := 0 to ASecoes.Count - 1 do
+    begin
+      if not (ASecoes.Items[I] is TJSONObject) then
+        Continue;
+
+      LItem := ASecoes.Items[I] as TJSONObject;
+      LId := LItem.GetValue<Integer>('id', 0);
+      LChave := LItem.GetValue<string>('chave', '');
+
+      if (LId <= 0) and (LChave <> '') then
+      begin
+        LQuery := TDatabase.Query;
+        LQuery.Clear;
+        LQuery.Add('SELECT FSC_ID FROM FICHA_SECAO WHERE FSC_CHAVE = :CHAVE');
+        LQuery.AddParam('CHAVE', LChave);
+        LQuery.Open;
+        if not LQuery.DataSet.IsEmpty then
+          LId := LQuery.DataSet.FieldByName('FSC_ID').AsInteger;
+      end;
+
+      if LId > 0 then
+      begin
+        LSecao.BuscaDadosTabela(LId);
+        if LSecao.Id > 0 then
+        begin
+          if LItem.TryGetValue<Integer>('ordem', LOrdem) then
+            LSecao.Ordem := LOrdem;
+
+          LValue := LItem.GetValue('ativo');
+          if Assigned(LValue) then
+          begin
+            if (LValue is TJSONTrue) or SameText(LValue.Value, 'true') or (LValue.Value = '1') then
+              LSecao.Ativo := 1
+            else if (LValue is TJSONFalse) or SameText(LValue.Value, 'false') or (LValue.Value = '0') then
+              LSecao.Ativo := 0;
+          end;
+
+          LValue := LItem.GetValue('exibe_tela');
+          if Assigned(LValue) then
+          begin
+            if (LValue is TJSONTrue) or SameText(LValue.Value, 'true') or (LValue.Value = '1') then
+              LSecao.ExibeTela := 1
+            else if (LValue is TJSONFalse) or SameText(LValue.Value, 'false') or (LValue.Value = '0') then
+              LSecao.ExibeTela := 0;
+          end;
+
+          LValue := LItem.GetValue('exibe_impressao');
+          if Assigned(LValue) then
+          begin
+            if (LValue is TJSONTrue) or SameText(LValue.Value, 'true') or (LValue.Value = '1') then
+              LSecao.ExibeImpressao := 1
+            else if (LValue is TJSONFalse) or SameText(LValue.Value, 'false') or (LValue.Value = '0') then
+              LSecao.ExibeImpressao := 0;
+          end;
+
+          LSecao.SalvaNoBanco(1);
+        end;
+      end;
+    end;
   finally
     LSecao.Free;
   end;

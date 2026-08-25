@@ -47,6 +47,7 @@ uses
   UnitFinanceiroLancamento.Model in 'Model\UnitFinanceiroLancamento.Model.pas',
   UnitPaciente.Model in 'Model\UnitPaciente.Model.pas',
   UnitPrescricao.Model in 'Model\UnitPrescricao.Model.pas',
+  UnitRetornoConsulta.Model in 'Model\UnitRetornoConsulta.Model.pas',
   UnitUsuarioPerfil.Model in 'Model\UnitUsuarioPerfil.Model.pas',
   UnitParceria.Model in 'Model\UnitParceria.Model.pas',
   UnitProcedimento.Model in 'Model\UnitProcedimento.Model.pas',

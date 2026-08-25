@@ -29,7 +29,7 @@ export default function Header({ sidebarOpen, setSidebarOpen, setActiveModule })
   };
 
   return (
-    <header className="sticky top-0 z-40 bg-white/95 backdrop-blur-md text-slate-800 border-b border-slate-200/80 select-none shadow-hairline transition-colors">
+    <header className="sticky top-0 z-40 bg-white/95 backdrop-blur-md text-slate-800 border-b border-slate-200/80 select-none shadow-hairline transition-colors print:hidden">
       <div className="flex items-center justify-between px-4 sm:px-6 py-2.5">
         <div className="flex items-center space-x-4">
           <button

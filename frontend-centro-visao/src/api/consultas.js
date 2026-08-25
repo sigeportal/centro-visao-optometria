@@ -128,7 +128,7 @@ export async function atualizarAnexoConsulta(id, payload) {
   return response.data?.data;
 }
 
-export async function finalizarConsulta(id) {
-  const response = await api.post(`/v1/consultas/${id}/finalizar`);
+export async function finalizarConsulta(id, payload) {
+  const response = await api.post(`/v1/consultas/${id}/finalizar`, payload);
   return response.data?.data;
 }

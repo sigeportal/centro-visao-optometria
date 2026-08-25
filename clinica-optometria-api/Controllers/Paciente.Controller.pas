@@ -16,6 +16,7 @@ type
     class procedure Excluir(Req: THorseRequest; Res: THorseResponse; Next: TProc);
     class procedure ListarAnamneses(Req: THorseRequest; Res: THorseResponse; Next: TProc);
     class procedure ListarConsultas(Req: THorseRequest; Res: THorseResponse; Next: TProc);
+    class procedure ListarRetornos(Req: THorseRequest; Res: THorseResponse; Next: TProc);
     class procedure ListarFinanceiro(Req: THorseRequest; Res: THorseResponse; Next: TProc);
     class procedure ListarDocumentos(Req: THorseRequest; Res: THorseResponse; Next: TProc);
   end;
@@ -81,6 +82,7 @@ begin
   THorse.Group.Prefix('/v1/pacientes').Delete('/:id', AutorizarRota(PERM_PACIENTE_EXCLUIR, Excluir));
   THorse.Group.Prefix('/v1/pacientes').Get('/:id/anamneses', AutorizarRota(PERM_CLINICO_CONSULTAR, ListarAnamneses));
   THorse.Group.Prefix('/v1/pacientes').Get('/:id/consultas', AutorizarRota(PERM_CONSULTA_RESUMO, ListarConsultas));
+  THorse.Group.Prefix('/v1/pacientes').Get('/:id/retornos', AutorizarRota(PERM_CLINICO_CONSULTAR, ListarRetornos));
   THorse.Group.Prefix('/v1/pacientes').Get('/:id/financeiro', AutorizarRota(PERM_FINANCEIRO_CONSULTAR, ListarFinanceiro));
   THorse.Group.Prefix('/v1/pacientes').Get('/:id/documentos', AutorizarRota(PERM_CLINICO_CONSULTAR, ListarDocumentos));
 end;
@@ -323,6 +325,36 @@ begin
   Service.Free;
 end;
 
+class procedure TPacienteController.ListarRetornos(Req: THorseRequest; Res: THorseResponse; Next: TProc);
+var
+  Service: TPacienteService;
+  LId: Integer;
+begin
+  Service := TPacienteService.Create;
+  try
+    LId := StrToIntDef(Req.Params.Items['id'], 0);
+    if LId <= 0 then
+    begin
+      Res.Send<TJSONObject>(TResponseUtils.Error('ID invalido', 422))
+        .Status(THTTPStatus.UnprocessableEntity);
+      Exit;
+    end;
+    Res.Send<TJSONObject>(TResponseUtils.Success('Retornos do paciente listados com sucesso', Service.ListarRetornos(LId)))
+      .Status(THTTPStatus.OK);
+  except
+    on E: EPacienteValidacao do
+      Res.Send<TJSONObject>(TResponseUtils.Error(E.Message, 422))
+        .Status(THTTPStatus.UnprocessableEntity);
+    on E: Exception do
+    begin
+      TLogger.Error('PacienteController.ListarRetornos', E);
+      Res.Send<TJSONObject>(TResponseUtils.InternalError(E.Message))
+        .Status(THTTPStatus.InternalServerError);
+    end;
+  end;
+  Service.Free;
+end;
+
 class procedure TPacienteController.ListarFinanceiro(Req: THorseRequest; Res: THorseResponse; Next: TProc);
 var
   Service: TPacienteService;
@@ -434,6 +466,14 @@ initialization
         .AddResponse(200, 'Paciente excluido com sucesso').&End
         .AddResponse(422, 'ID invalido').&End
         .AddResponse(500, 'Erro interno ao excluir paciente').&End
+      .&End
+    .&End
+    .Path('pacientes/{id}/retornos')
+      .Tag('Pacientes')
+      .GET('Listar retornos do paciente', 'Retorna os planos de retorno vinculados as consultas do paciente')
+        .AddResponse(200, 'Retornos listados com sucesso').&End
+        .AddResponse(422, 'ID invalido').&End
+        .AddResponse(500, 'Erro interno ao listar retornos').&End
       .&End
     .&End;
 

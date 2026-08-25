@@ -16,6 +16,8 @@ import {
 } from 'lucide-react';
 import { atualizarAnamnese, criarAnamneseConsulta, excluirAnamnese, obterAnamnese, obterImpressaoAnamnese } from '../../../api/consultas';
 import { listarAnamnesesPaciente, listarConsultasPaciente } from '../../../api/pacientes';
+import { obterDadosClinica } from '../../../api/configuracoes';
+import { generateAnamnesisHtml, printAnamneseViaIframe } from '../../../utils/printAnamnese';
 import { useAuth } from '../../../context/AuthContext';
 import { PERMISSIONS } from '../../../constants/permissions';
 import { adaptConsultation } from '../../../domain/consultas';
@@ -88,24 +90,6 @@ function formatDateTime(value) {
   return date ? date.toLocaleString('pt-BR') : 'Data não informada';
 }
 
-function escapeHtml(value) {
-  return String(value ?? '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;').replaceAll("'", '&#039;');
-}
-
-function printAnamnesis(printWindow, data, patient) {
-  const rows = [
-    ['Paciente', patient?.name],
-    ['Data de cadastro', formatDateTime(data?.data)],
-    ['Motivo principal', data?.motivo_principal || data?.queixa_principal],
-    ['Histórico / observações gerais', data?.observacoes_gerais || data?.historico],
-    ['Observações finais', data?.observacoes],
-  ].filter(([, value]) => value);
-  printWindow.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Anamnese</title><style>body{font-family:Arial,sans-serif;color:#17211b;margin:32px}h1{font-size:20px;border-bottom:2px solid #25634b;padding-bottom:12px}.row{margin:16px 0}.label{color:#607067;font-size:11px;font-weight:700;text-transform:uppercase}.value{margin-top:5px;white-space:pre-wrap;font-size:13px}@media print{body{margin:18mm}}</style></head><body><h1>Anamnese</h1>${rows.map(([label, value]) => `<div class="row"><div class="label">${escapeHtml(label)}</div><div class="value">${escapeHtml(value)}</div></div>`).join('')}</body></html>`);
-  printWindow.document.close();
-  printWindow.focus();
-  printWindow.print();
-}
-
 function normalizeAnamnesis(data) {
   const lastExam = parseApiDateTime(data?.data_ultimo_exame);
   const sintomas = separateKnownValues(data?.sintomas, ANAMNESIS_OPTIONS.sintomas);
@@ -151,7 +135,7 @@ function normalizeAnamnesis(data) {
   };
 }
 
-function AnamnesisModal({ entry, consultationId, mode, patient, onClose, onSaved, onNotify }) {
+function AnamnesisModal({ entry, consultationId, mode, patient, clinicInfo, consultations, onClose, onSaved, onNotify }) {
   const creating = mode === 'create';
   const editing = mode === 'edit';
   const writable = creating || editing;
@@ -298,36 +282,27 @@ function AnamnesisModal({ entry, consultationId, mode, patient, onClose, onSaved
             </div>
             <div>
               <span className="text-[10px] font-bold uppercase tracking-wider text-amber-400 block">
-                ANAMNESE CLÍNICA
+                Prontuário de Anamnese
               </span>
-              <h3 id="anamnese-modal-title" className="font-bold text-white text-base tracking-tight mt-0.5">
-                {creating ? 'Adicionar Anamnese' : editing ? 'Editar Anamnese' : 'Visualizar Anamnese'}
-              </h3>
-              <p className="text-[11px] text-forest-200/80 mt-0.5">
-                {patient.name} {creating ? '· Novo registro' : `· Cadastrada em ${formatDateTime(entry.criado_em || entry.data)}`}
-              </p>
+              <h2 id="anamnese-modal-title" className="text-base sm:text-lg font-bold text-white tracking-tight">
+                {creating ? 'Nova Anamnese' : editing ? 'Editar Anamnese' : 'Visualizar Anamnese'}
+              </h2>
             </div>
           </div>
           <button 
             type="button" 
             onClick={onClose} 
             disabled={saving} 
-            className="p-1.5 rounded-lg text-forest-200 hover:text-white hover:bg-white/10 transition-colors disabled:opacity-50" 
+            className="p-2 rounded-xl text-slate-300 hover:text-white hover:bg-forest-800 transition-colors" 
+            title="Fechar (Esc)" 
             aria-label="Fechar modal"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
-        {/* Form Body */}
-        <div className="overflow-y-auto p-4 sm:p-6 space-y-4 bg-slate-50/50">
-          {loading && (
-            <div className="min-h-56 flex items-center justify-center gap-2 text-slate-600 font-semibold bg-white rounded-2xl border border-slate-200/80 shadow-hairline">
-              <Loader2 className="w-4 h-4 animate-spin text-forest-700" />
-              <span>Carregando anamnese...</span>
-            </div>
-          )}
-          
+        {/* Content */}
+        <div className="p-5 sm:p-6 overflow-y-auto space-y-6 flex-1 bg-slate-50/40">
           {error && (
             <div className="bg-rose-50 border border-rose-200 rounded-2xl p-4 text-rose-900 font-semibold flex items-start gap-2.5">
               <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-rose-600" />
@@ -335,50 +310,67 @@ function AnamnesisModal({ entry, consultationId, mode, patient, onClose, onSaved
             </div>
           )}
 
-          {!loading && !error && (
+          {loading ? (
+            <div className="min-h-64 flex items-center justify-center gap-2 text-slate-600 font-semibold">
+              <Loader2 className="w-5 h-5 animate-spin text-forest-700" />
+              <span>Carregando dados da anamnese...</span>
+            </div>
+          ) : (
             <>
               <section className="border border-slate-200/80 rounded-2xl bg-white p-4 sm:p-5 space-y-4 shadow-hairline">
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  {textField('motivoPrincipal', 'Motivo principal da consulta', { className: 'block md:col-span-2' })}
-                  {textField('dataUltimoExame', 'Data do último exame', { type: 'date' })}
-                </div>
-                <RichTextEditor 
-                  value={form.observacoesGerais} 
-                  onChange={(value) => update('observacoesGerais', value)} 
-                  disabled={!writable || saving} 
-                />
-              </section>
-
-              <section className="border border-slate-200/80 rounded-2xl bg-white p-4 sm:p-5 space-y-5 shadow-hairline">
-                {optionGroup('Sintomas', 'sintomas', ANAMNESIS_OPTIONS.sintomas)}
-                {optionGroup('Doenças Oculares', 'doencasOculares', ANAMNESIS_OPTIONS.doencasOculares)}
-                {optionGroup('Doenças Sistêmicas', 'doencasSistemicas', ANAMNESIS_OPTIONS.doencasSistemicas)}
-                {optionGroup('Medicamentos em Uso', 'medicamentos', ANAMNESIS_OPTIONS.medicamentos)}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-1">
-                  {textField('outrosSintomas', 'Outros sintomas')}
-                  {textField('outrasDoencasOculares', 'Outras doenças oculares')}
-                  {textField('outrasDoencasSistemicas', 'Outras doenças sistêmicas')}
-                  {textField('outrosMedicamentos', 'Outros medicamentos')}
-                </div>
-              </section>
-
-              <section className="border border-slate-200/80 rounded-2xl bg-white p-4 sm:p-5 shadow-hairline">
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-                  {optionGroup('Uso de Óculos', 'usoOculos', ['Usa Óculos', 'Dificuldade Longe', 'Dificuldade Perto'], 'grid-cols-1')}
-                  {optionGroup('Uso de Lentes', 'usoLentes', ['Usa Lente de Contato?', 'Dificuldade Longe', 'Dificuldade Perto'], 'grid-cols-1')}
-                  <div className="space-y-3">
-                    {optionGroup('Antecedentes Familiares', 'antecedentes', ANAMNESIS_OPTIONS.antecedentes, 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-1')}
-                    {textField('antecedentesOutros', 'Outros antecedentes')}
+                <h3 className="font-bold text-xs uppercase text-forest-800 tracking-wider">Identificação & Queixa Principal</h3>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5">
+                  <div className="md:col-span-2">
+                    {textField('motivoPrincipal', 'Motivo Principal da Consulta')}
                   </div>
+                  <div>
+                    {textField('dataUltimoExame', 'Data do Último Exame', { type: 'date' })}
+                  </div>
+                </div>
+                <div>
+                  <span className="clinical-label">Histórico / Observações Gerais</span>
+                  <RichTextEditor
+                    value={form.observacoesGerais}
+                    onChange={(value) => update('observacoesGerais', value)}
+                    disabled={!writable || saving}
+                    placeholder="Histórico visual, uso de correção e antecedentes relevantes..."
+                  />
                 </div>
               </section>
 
               <section className="border border-slate-200/80 rounded-2xl bg-white p-4 sm:p-5 space-y-4 shadow-hairline">
-                {optionGroup('Cefaleia', 'cefaleia', ['Dor de cabeça', ...ANAMNESIS_OPTIONS.cefaleiaLocal, ...ANAMNESIS_OPTIONS.cefaleiaFrequencia])}
+                <h3 className="font-bold text-xs uppercase text-forest-800 tracking-wider">Sintomas Oculares</h3>
+                {optionGroup('Sintomas Relatados', 'sintomas', ANAMNESIS_OPTIONS.sintomas)}
+                {textField('outrosSintomas', 'Outros Sintomas Oculares')}
+              </section>
+
+              <section className="border border-slate-200/80 rounded-2xl bg-white p-4 sm:p-5 space-y-4 shadow-hairline">
+                <h3 className="font-bold text-xs uppercase text-forest-800 tracking-wider">Patologias e Saúde Geral</h3>
+                {optionGroup('Doenças Oculares', 'doencasOculares', ANAMNESIS_OPTIONS.doencasOculares)}
+                {textField('outrasDoencasOculares', 'Outras Doenças Oculares')}
+                {optionGroup('Doenças Sistêmicas', 'doencasSistemicas', ANAMNESIS_OPTIONS.doencasSistemicas)}
+                {textField('outrasDoencasSistemicas', 'Outras Doenças Sistêmicas')}
+                {optionGroup('Medicamentos em Uso', 'medicamentos', ANAMNESIS_OPTIONS.medicamentos)}
+                {textField('outrosMedicamentos', 'Outros Medicamentos')}
+              </section>
+
+              <section className="border border-slate-200/80 rounded-2xl bg-white p-4 sm:p-5 space-y-4 shadow-hairline">
+                <h3 className="font-bold text-xs uppercase text-forest-800 tracking-wider">Correção e Antecedentes</h3>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {textField('cefaleiaLocalOutro', 'Outro local da cefaleia')}
-                  {textField('cefaleiaFrequenciaOutro', 'Outra frequência da cefaleia')}
+                  {optionGroup('Uso de Óculos', 'usoOculos', ['Usa Óculos', 'Dificuldade Longe', 'Dificuldade Perto'], 'grid-cols-1 sm:grid-cols-2')}
+                  {optionGroup('Uso de Lentes de Contato', 'usoLentes', ['Usa Lente de Contato?', 'Dificuldade Longe', 'Dificuldade Perto'], 'grid-cols-1 sm:grid-cols-2')}
                 </div>
+                {optionGroup('Antecedentes Familiares', 'antecedentes', ANAMNESIS_OPTIONS.antecedentes)}
+                {textField('antecedentesOutros', 'Outros Antecedentes')}
+              </section>
+
+              <section className="border border-slate-200/80 rounded-2xl bg-white p-4 sm:p-5 space-y-4 shadow-hairline">
+                <h3 className="font-bold text-xs uppercase text-forest-800 tracking-wider">Cefaleia (Dor de Cabeça)</h3>
+                {optionGroup('Presença de Cefaleia', 'cefaleia', ['Dor de cabeça'], 'grid-cols-1 max-w-xs')}
+                {optionGroup('Localização da Cefaleia', 'cefaleia', ANAMNESIS_OPTIONS.cefaleiaLocal)}
+                {textField('cefaleiaLocalOutro', 'Outra Localização')}
+                {optionGroup('Frequência / Momento', 'cefaleia', ANAMNESIS_OPTIONS.cefaleiaFrequencia)}
+                {textField('cefaleiaFrequenciaOutro', 'Outra Frequência')}
               </section>
 
               <section className="border border-slate-200/80 rounded-2xl bg-white p-4 sm:p-5 shadow-hairline">
@@ -389,25 +381,41 @@ function AnamnesisModal({ entry, consultationId, mode, patient, onClose, onSaved
         </div>
 
         {/* Footer */}
-        <div className="shrink-0 p-4 sm:px-6 bg-slate-50 border-t border-slate-100 flex items-center justify-end gap-2">
-          <button 
-            type="button" 
-            onClick={onClose} 
-            disabled={saving} 
-            className="h-10 btn-secondary px-4"
-          >
-            {writable ? 'Cancelar' : 'Fechar'}
-          </button>
-          {writable && (
+        <div className="shrink-0 p-4 sm:px-6 bg-slate-50 border-t border-slate-100 flex items-center justify-between gap-2">
+          <div>
+            {!creating && !loading && (
+              <button
+                type="button"
+                onClick={handlePrintCurrentModal}
+                disabled={saving}
+                className="h-10 btn-secondary px-4 inline-flex items-center gap-2"
+                title="Imprimir esta anamnese"
+              >
+                <Printer className="w-4 h-4 text-forest-700" />
+                <span>Imprimir Anamnese</span>
+              </button>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
             <button 
-              type="submit" 
-              disabled={loading || Boolean(error) || saving} 
-              className="h-10 btn-primary px-5"
+              type="button" 
+              onClick={onClose} 
+              disabled={saving} 
+              className="h-10 btn-secondary px-4"
             >
-              {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-              <span>{saving ? 'Salvando...' : creating ? 'Salvar nova anamnese' : 'Salvar alterações'}</span>
+              {writable ? 'Cancelar' : 'Fechar'}
             </button>
-          )}
+            {writable && (
+              <button 
+                type="submit" 
+                disabled={loading || Boolean(error) || saving} 
+                className="h-10 btn-primary px-5"
+              >
+                {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                <span>{saving ? 'Salvando...' : creating ? 'Salvar nova anamnese' : 'Salvar alterações'}</span>
+              </button>
+            )}
+          </div>
         </div>
       </form>
     </div>,
@@ -421,12 +429,32 @@ export default function AnamnesesPacienteTab({ patient, onNotify }) {
   const canEditClinical = can(PERMISSIONS.CLINICAL_EDIT);
   const [items, setItems] = useState([]);
   const [consultations, setConsultations] = useState([]);
+  const [clinicInfo, setClinicInfo] = useState({ name: '', cnpj: '', phone: '', address: '', city: '', state: '', cep: '' });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [deletingId, setDeletingId] = useState(null);
   const [refreshKey, setRefreshKey] = useState(0);
   const [modal, setModal] = useState(null);
   const [menuAnchor, setMenuAnchor] = useState(null);
+
+  // Carrega dados da clínica para os cabeçalhos de impressão
+  useEffect(() => {
+    const controller = new AbortController();
+    obterDadosClinica({ signal: controller.signal })
+      .then((data) => {
+        setClinicInfo({
+          name: data?.nome || data?.name || '',
+          cnpj: data?.cnpj || '',
+          phone: data?.telefone || data?.phone || '',
+          address: data?.endereco || data?.address || '',
+          city: data?.cidade || data?.city || '',
+          state: data?.estado || data?.state || '',
+          cep: data?.cep || '',
+        });
+      })
+      .catch(() => {});
+    return () => controller.abort();
+  }, []);
 
   const load = useCallback(async (signal) => {
     setLoading(true);
@@ -475,19 +503,13 @@ export default function AnamnesesPacienteTab({ patient, onNotify }) {
   };
 
   const handlePrint = async (item) => {
-    const printWindow = window.open('', '_blank');
-    if (!printWindow) {
-      onNotify?.('error', 'O navegador bloqueou a janela de impressão.');
-      return;
-    }
-    printWindow.opener = null;
-    printWindow.document.write('<p style="font-family:Arial;padding:24px">Preparando anamnese...</p>');
     try {
-      const data = await obterImpressaoAnamnese(item.id);
-      printWindow.document.open();
-      printAnamnesis(printWindow, data, patient);
+      const data = await obterAnamnese(item.id);
+      const consultation = consultations.find((c) => String(c.id) === String(item.consulta_id || item.consultaId || data.consulta_id));
+      const html = generateAnamnesisHtml(data, patient, clinicInfo, consultation);
+      printAnamneseViaIframe(html);
+      onNotify?.('success', 'Anamnese enviada para impressão.');
     } catch (errorValue) {
-      printWindow.close();
       onNotify?.('error', requestError(errorValue, 'Não foi possível preparar a impressão.'));
     }
   };
@@ -614,6 +636,8 @@ export default function AnamnesesPacienteTab({ patient, onNotify }) {
           consultationId={modal.consultationId} 
           mode={modal.mode} 
           patient={patient} 
+          clinicInfo={clinicInfo}
+          consultations={consultations}
           onClose={() => setModal(null)} 
           onSaved={() => setRefreshKey((value) => value + 1)} 
           onNotify={onNotify} 

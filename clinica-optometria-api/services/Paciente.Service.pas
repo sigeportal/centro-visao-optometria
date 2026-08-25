@@ -11,11 +11,13 @@ type
 
   TPacienteService = class
   private
+    procedure GarantirRetornoTabela;
     procedure AplicarDados(APaciente: TObject; AData: TJSONObject; AAtualizacao: Boolean);
     procedure ValidarDados(AData: TJSONObject; AAtualizacao: Boolean);
     function TemDependencias(AId: Integer): Boolean;
     function DataISO(const AValor: string): TDateTime;
   public
+    constructor Create;
     function Listar(const ABusca: string; APage, ALimit: Integer): TJSONObject;
     function ObterPorId(AId: Integer): TJSONObject;
     function Criar(AData: TJSONObject): Integer;
@@ -23,6 +25,7 @@ type
     function Excluir(AId: Integer): Boolean;
     function ListarAnamneses(APacienteId: Integer): TJSONArray;
     function ListarConsultas(APacienteId: Integer): TJSONArray;
+    function ListarRetornos(APacienteId: Integer): TJSONArray;
     function ListarFinanceiro(APacienteId: Integer): TJSONArray;
     function ListarDocumentos(APacienteId: Integer): TJSONArray;
   end;
@@ -36,6 +39,24 @@ uses
   UnitDatabase,
   Models.Clinica,
   Dataset.JSON.Utils;
+
+constructor TPacienteService.Create;
+begin
+  inherited Create;
+  GarantirRetornoTabela;
+end;
+
+procedure TPacienteService.GarantirRetornoTabela;
+var
+  LRetorno: TModelRetornoConsulta;
+begin
+  LRetorno := TModelRetornoConsulta.Create(TDatabase.Connection);
+  try
+    LRetorno.CriaTabela;
+  finally
+    LRetorno.Free;
+  end;
+end;
 
 function ApenasDigitos(const AValor: string): string;
 var
@@ -402,6 +423,52 @@ begin
         'CON_DATA AS DATA, CON_FINALIZADA_EM AS FINALIZADA_EM, CON_PROFISSIONAL AS PROFISSIONAL, ' +
         'CON_PROCEDIMENTO AS PROCEDIMENTO, CON_STATUS AS STATUS ' +
         'FROM CONSULTAS WHERE CON_PACIENTE_ID = :PACIENTE_ID ORDER BY CON_DATA DESC';
+      LQuery.ParamByName('PACIENTE_ID').AsInteger := APacienteId;
+      LQuery.Open;
+      Result := TDatasetJsonUtils.QueryToJSONArray(LQuery);
+    finally
+      LQuery.Free;
+    end;
+  finally
+    TDatabase.Connection.Disconnected(LIndiceConexao);
+  end;
+end;
+
+function TPacienteService.ListarRetornos(APacienteId: Integer): TJSONArray;
+var
+  LQuery: TFDQuery;
+  LIndiceConexao: Integer;
+  LConn: TFDConnection;
+begin
+  if APacienteId <= 0 then
+    raise EPacienteValidacao.Create('Paciente invalido');
+
+  LIndiceConexao := TDatabase.Connection.Connected;
+  try
+    LConn := TFDConnection(TDatabase.Connection.GetListaConexoes[LIndiceConexao]);
+    LQuery := TFDQuery.Create(nil);
+    try
+      LQuery.Connection := LConn;
+      LQuery.SQL.Text :=
+        'SELECT R.RET_ID AS ID, R.RET_CONSULTA_ID AS CONSULTA_ID, ' +
+        'C.CON_PACIENTE_ID AS PACIENTE_ID, P.PAC_NOME AS PACIENTE_NOME, C.CON_DATA AS CONSULTA_DATA, ' +
+        'C.CON_PROFISSIONAL AS PROFISSIONAL, C.CON_PROCEDIMENTO AS PROCEDIMENTO, ' +
+        'C.CON_STATUS AS CONSULTA_STATUS, ' +
+        'CASE WHEN R.RET_TIPO IN (''sem_retorno'', ''conforme_necessidade'') THEN ''sem_retorno'' ' +
+        'WHEN R.RET_SITUACAO IS NULL OR R.RET_SITUACAO = '''' THEN ''retorno_programado'' ' +
+        'ELSE R.RET_SITUACAO END AS SITUACAO, ' +
+        'R.RET_TIPO AS TIPO, R.RET_DATA AS DATA_RETORNO, ' +
+        'R.RET_MOTIVO AS MOTIVO, R.RET_OBSERVACAO AS OBSERVACAO, ' +
+        'R.RET_CRIADO_POR AS CRIADO_POR, R.RET_CRIADO_EM AS CRIADO_EM, ' +
+        'R.RET_ATUALIZADO_POR AS ATUALIZADO_POR, R.RET_ATUALIZADO_EM AS ATUALIZADO_EM, ' +
+        'UC.USU_LOGIN AS CRIADO_POR_LOGIN, UA.USU_LOGIN AS ATUALIZADO_POR_LOGIN ' +
+        'FROM RETORNOS_CONSULTA R ' +
+        'JOIN CONSULTAS C ON C.CON_ID = R.RET_CONSULTA_ID ' +
+        'JOIN PACIENTES P ON P.PAC_ID = C.CON_PACIENTE_ID ' +
+        'LEFT JOIN USUARIOS UC ON UC.USU_CODIGO = R.RET_CRIADO_POR ' +
+        'LEFT JOIN USUARIOS UA ON UA.USU_CODIGO = R.RET_ATUALIZADO_POR ' +
+        'WHERE C.CON_PACIENTE_ID = :PACIENTE_ID ' +
+        'ORDER BY COALESCE(CAST(R.RET_DATA AS TIMESTAMP), C.CON_DATA) DESC, R.RET_ID DESC';
       LQuery.ParamByName('PACIENTE_ID').AsInteger := APacienteId;
       LQuery.Open;
       Result := TDatasetJsonUtils.QueryToJSONArray(LQuery);

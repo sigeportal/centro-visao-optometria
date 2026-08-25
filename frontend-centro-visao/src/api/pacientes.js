@@ -27,6 +27,11 @@ export async function listarConsultasPaciente(id, options = {}) {
   return Array.isArray(response.data?.data) ? response.data.data : [];
 }
 
+export async function listarRetornosPaciente(id, options = {}) {
+  const response = await api.get(`/v1/pacientes/${id}/retornos`, { signal: options.signal });
+  return Array.isArray(response.data?.data) ? response.data.data : [];
+}
+
 export async function listarAnamnesesPaciente(id, options = {}) {
   const response = await api.get(`/v1/pacientes/${id}/anamneses`, { signal: options.signal });
   return Array.isArray(response.data?.data) ? response.data.data : [];

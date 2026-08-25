@@ -102,7 +102,6 @@
         <DCCReference Include="Controllers\Agenda.Controller.pas"/>
         <DCCReference Include="Controllers\Consulta.Controller.pas"/>
         <DCCReference Include="Controllers\FichaClinica.Controller.pas"/>
-        <DCCReference Include="Controllers\ConfiguracaoClinica.Controller.pas"/>
         <DCCReference Include="Controllers\Dashboard.Controller.pas"/>
         <DCCReference Include="Controllers\Paciente.Controller.pas"/>
         <DCCReference Include="services\Agenda.Service.pas"/>
@@ -110,7 +109,6 @@
         <DCCReference Include="services\Consulta.Service.pas"/>
         <DCCReference Include="services\FichaClinica.Service.pas"/>
         <DCCReference Include="services\FichaClinicaDados.Service.pas"/>
-        <DCCReference Include="services\ConfiguracaoClinica.Service.pas"/>
         <DCCReference Include="services\Dashboard.Service.pas"/>
         <DCCReference Include="services\Paciente.Service.pas"/>
         <DCCReference Include="services\Autorizacao.Service.pas"/>
@@ -124,10 +122,10 @@
         <DCCReference Include="Model\UnitDocumentoConsulta.Model.pas"/>
         <DCCReference Include="Model\UnitFichaSecao.Model.pas"/>
         <DCCReference Include="Model\UnitFichaClinicaDados.Model.pas"/>
-        <DCCReference Include="Model\UnitConfiguracaoClinica.Model.pas"/>
         <DCCReference Include="Model\UnitFinanceiroLancamento.Model.pas"/>
         <DCCReference Include="Model\UnitPaciente.Model.pas"/>
         <DCCReference Include="Model\UnitPrescricao.Model.pas"/>
+        <DCCReference Include="Model\UnitRetornoConsulta.Model.pas"/>
         <DCCReference Include="Model\UnitUsuarioPerfil.Model.pas"/>
         <DCCReference Include="Model\UnitParceria.Model.pas"/>
         <DCCReference Include="Model\UnitProcedimento.Model.pas"/>

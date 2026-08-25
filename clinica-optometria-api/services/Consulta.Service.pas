@@ -632,7 +632,7 @@ begin
   LQuery.Add('REC_OD_PERTO_EIXO AS OD_PERTO_EIXO, REC_OD_PERTO_AV AS OD_PERTO_AV, REC_OD_PERTO_PRISMA AS OD_PERTO_PRISMA, REC_OD_PERTO_DNP AS OD_PERTO_DNP, ');
   LQuery.Add('REC_OE_PERTO_ESFERICO AS OE_PERTO_ESFERICO, REC_OE_PERTO_CILINDRICO AS OE_PERTO_CILINDRICO, ');
   LQuery.Add('REC_OE_PERTO_EIXO AS OE_PERTO_EIXO, REC_OE_PERTO_AV AS OE_PERTO_AV, REC_OE_PERTO_PRISMA AS OE_PERTO_PRISMA, REC_OE_PERTO_DNP AS OE_PERTO_DNP, ');
-  LQuery.Add('REC_ADICAO AS ADICAO, REC_LENTE AS LENTE, REC_RETORNO AS RETORNO, ');
+  LQuery.Add('REC_ADICAO AS ADICAO, REC_LENTE AS LENTE, ');
   LQuery.Add('REC_OBSERVACOES AS OBSERVACOES, REC_DATA AS DATA ');
   LQuery.Add('FROM PRESCRICOES WHERE REC_CONSULTA_ID = :CONSULTA_ID ORDER BY REC_DATA DESC');
   LQuery.AddParam('CONSULTA_ID', AConsultaId);
@@ -681,7 +681,6 @@ begin
     AddStringPair(Result, 'oe_perto_dnp', LPrescricao.OEPertoDnp);
     AddStringPair(Result, 'adicao', LPrescricao.Adicao);
     AddStringPair(Result, 'lente', LPrescricao.Lente);
-    AddDatePair(Result, 'retorno', LPrescricao.Retorno);
     AddStringPair(Result, 'observacoes', LPrescricao.Observacoes);
     AddDatePair(Result, 'data', LPrescricao.Data);
   finally
@@ -734,7 +733,6 @@ begin
     LPrescricao.OEPertoDnp := JsonString(ADados, 'oe_perto_dnp');
     LPrescricao.Adicao := JsonString(ADados, 'adicao');
     LPrescricao.Lente := JsonString(ADados, 'lente');
-    LPrescricao.Retorno := JsonDate(ADados, 'retorno');
     LPrescricao.Observacoes := JsonString(ADados, 'observacoes');
     LPrescricao.Data := Now;
     LPrescricao.SalvaNoBanco(1);
@@ -785,7 +783,6 @@ begin
     LPrescricao.OEPertoDnp := JsonString(ADados, 'oe_perto_dnp');
     LPrescricao.Adicao := JsonString(ADados, 'adicao');
     LPrescricao.Lente := JsonString(ADados, 'lente');
-    LPrescricao.Retorno := JsonDate(ADados, 'retorno');
     LPrescricao.Observacoes := JsonString(ADados, 'observacoes');
     LPrescricao.Data := Now;
     LPrescricao.SalvaNoBanco(1);

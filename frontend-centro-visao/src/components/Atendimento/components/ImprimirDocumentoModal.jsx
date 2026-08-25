@@ -1,7 +1,8 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { X, Printer, FileText } from 'lucide-react';
-import { formatCPF } from '../../../utils/formatters';
+import { formatCPF, formatCNPJ, formatCEP, formatPhone } from '../../../utils/formatters';
+import { obterDadosClinica } from '../../../api/configuracoes';
 
 export default function ImprimirDocumentoModal({
   isOpen,
@@ -13,7 +14,35 @@ export default function ImprimirDocumentoModal({
   customText,
   onConfirmPrint
 }) {
+  const [clinicData, setClinicData] = useState({ name: '', cnpj: '', phone: '', address: '', city: '', state: '', cep: '' });
+
+  useEffect(() => {
+    if (!isOpen) return undefined;
+    const controller = new AbortController();
+    obterDadosClinica({ signal: controller.signal })
+      .then((data) => {
+        setClinicData({
+          name: data.nome || data.name || '',
+          cnpj: data.cnpj || '',
+          phone: data.telefone || data.phone || '',
+          address: data.endereco || data.address || '',
+          city: data.cidade || data.city || '',
+          state: data.estado || data.state || '',
+          cep: data.cep || '',
+        });
+      })
+      .catch(() => {});
+    return () => controller.abort();
+  }, [isOpen]);
+
   if (!isOpen) return null;
+
+  const addressLine = [
+    clinicData.address,
+    clinicData.city && clinicData.state ? `${clinicData.city} - ${clinicData.state}` : (clinicData.city || clinicData.state),
+    clinicData.cep ? `CEP: ${formatCEP(clinicData.cep)}` : null,
+    clinicData.phone ? `Tel/WhatsApp: ${formatPhone(clinicData.phone)}` : null,
+  ].filter(Boolean).join(' • ');
 
   return createPortal(
     <div className="fixed inset-0 z-[999999] bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-3 sm:p-6 overflow-y-auto print:p-0 print:bg-white print:static">
@@ -25,14 +54,18 @@ export default function ImprimirDocumentoModal({
             <img src="/logo-centro-visao.png" alt="Centro Visão" className="w-14 h-14 object-contain shrink-0" />
             <div>
               <h2 className="text-xl font-bold uppercase text-forest-900 tracking-wider">
-                CENTRO VISÃO OPTOMETRIA
+                {clinicData.name || 'CENTRO VISÃO'}
               </h2>
-              <p className="text-xs text-slate-600 font-medium mt-0.5">
-                Clínica de Saúde Visual & Avaliação Refrativa Especializada
-              </p>
-              <p className="text-[10px] text-slate-400 font-mono">
-                CNPJ: 12.345.678/0001-90 • Av. Paulista, 1000 — Sala 804 • Tel: (11) 98765-4321
-              </p>
+              {clinicData.cnpj && (
+                <p className="text-xs font-mono font-semibold text-slate-700 mt-0.5">
+                  CNPJ: {formatCNPJ(clinicData.cnpj)}
+                </p>
+              )}
+              {addressLine && (
+                <p className="text-[10.5px] text-slate-500 font-mono mt-0.5">
+                  {addressLine}
+                </p>
+              )}
             </div>
           </div>
 

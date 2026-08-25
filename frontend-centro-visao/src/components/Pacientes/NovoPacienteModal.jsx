@@ -2,9 +2,11 @@ import { useState } from 'react';
 import { CalendarPlus, Check, Loader2, User, X } from 'lucide-react';
 import { criarPaciente, obterPaciente } from '../../api/pacientes';
 import { adaptPatient, calculateAge, patientPayload } from '../../domain/pacientes';
+import { maskCPF, maskPhone } from '../../utils/formatters';
 
 const INITIAL_FORM = {
-  name: '', socialName: '', birthDate: '', gender: '', phone: '', cpf: '', city: '', state: '',
+  name: '', socialName: '', birthDate: '', gender: '', phone: '', cpf: '',
+  address: '', city: '', state: '', responsibleName: '', responsibleCpf: '',
 };
 
 function errorMessage(error) {
@@ -102,8 +104,9 @@ export default function NovoPacienteModal({ isOpen, onClose, onSaveAndAttend }) 
               <label className="clinical-label">CPF</label>
               <input
                 type="text"
+                maxLength={14}
                 value={form.cpf}
-                onChange={(event) => updateField('cpf', event.target.value)}
+                onChange={(event) => updateField('cpf', maskCPF(event.target.value))}
                 placeholder="000.000.000-00"
                 className="clinical-input font-mono font-bold"
               />
@@ -112,10 +115,11 @@ export default function NovoPacienteModal({ isOpen, onClose, onSaveAndAttend }) 
               <label className="clinical-label">Celular / WhatsApp</label>
               <input
                 type="text"
+                maxLength={15}
                 value={form.phone}
-                onChange={(event) => updateField('phone', event.target.value)}
+                onChange={(event) => updateField('phone', maskPhone(event.target.value))}
                 placeholder="(00) 00000-0000"
-                className="clinical-input font-medium"
+                className="clinical-input font-medium font-mono"
               />
             </div>
           </div>
@@ -150,6 +154,17 @@ export default function NovoPacienteModal({ isOpen, onClose, onSaveAndAttend }) 
               </select>
             </div>
           </div>
+          <div>
+            <label className="clinical-label">Logradouro e Número</label>
+            <input
+              type="text"
+              maxLength={255}
+              value={form.address}
+              onChange={(event) => updateField('address', event.target.value)}
+              className="clinical-input font-medium"
+              placeholder="Ex.: Rua das Flores, 123"
+            />
+          </div>
           <div className="grid grid-cols-1 sm:grid-cols-[1fr_110px] gap-3">
             <div>
               <label className="clinical-label">Cidade</label>
@@ -169,6 +184,35 @@ export default function NovoPacienteModal({ isOpen, onClose, onSaveAndAttend }) 
                 onChange={(event) => updateField('state', event.target.value.toUpperCase())}
                 className="clinical-input font-bold uppercase"
               />
+            </div>
+          </div>
+          <div className="pt-3.5 border-t border-slate-100">
+            <span className="font-bold text-[10.5px] uppercase text-forest-800 tracking-wider block mb-3">
+              Responsável Legal <span className="normal-case text-slate-400 font-medium tracking-normal">(opcional)</span>
+            </span>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="clinical-label">Nome do responsável</label>
+                <input
+                  type="text"
+                  maxLength={150}
+                  value={form.responsibleName}
+                  onChange={(event) => updateField('responsibleName', event.target.value)}
+                  className="clinical-input font-medium"
+                  placeholder="Nome completo"
+                />
+              </div>
+              <div>
+                <label className="clinical-label">CPF do responsável</label>
+                <input
+                  type="text"
+                  maxLength={14}
+                  value={form.responsibleCpf}
+                  onChange={(event) => updateField('responsibleCpf', maskCPF(event.target.value))}
+                  className="clinical-input font-mono font-bold"
+                  placeholder="000.000.000-00"
+                />
+              </div>
             </div>
           </div>
         </div>
@@ -207,4 +251,3 @@ export default function NovoPacienteModal({ isOpen, onClose, onSaveAndAttend }) 
     </div>
   );
 }
-

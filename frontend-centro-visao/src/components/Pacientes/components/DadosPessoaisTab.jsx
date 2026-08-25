@@ -1,6 +1,6 @@
 import React from 'react';
 import { Save } from 'lucide-react';
-import { calculateAge } from '../../../utils/formatters';
+import { calculateAge, maskCPF, maskRG, maskPhone } from '../../../utils/formatters';
 
 export default function DadosPessoaisTab({
   formData,
@@ -21,7 +21,7 @@ export default function DadosPessoaisTab({
             Dados Cadastrais & Informações Pessoais
           </h3>
           <p className="text-[11px] text-slate-400 mt-0.5">
-            Registro civil, informações de contato, endereço residencial e convênio do paciente.
+            Registro civil, informações de contato, endereço residencial e responsável legal do paciente.
           </p>
         </div>
 
@@ -83,9 +83,11 @@ export default function DadosPessoaisTab({
               </label>
               <input
                 type="text"
+                maxLength={14}
+                placeholder="000.000.000-00"
                 disabled={!isEditing}
-                value={formData.cpf}
-                onChange={(e) => setFormData({ ...formData, cpf: e.target.value })}
+                value={maskCPF(formData.cpf || '')}
+                onChange={(e) => setFormData({ ...formData, cpf: maskCPF(e.target.value) })}
                 className="clinical-input font-mono font-bold"
               />
             </div>
@@ -96,9 +98,11 @@ export default function DadosPessoaisTab({
               </label>
               <input
                 type="text"
+                maxLength={12}
+                placeholder="00.000.000-0"
                 disabled={!isEditing}
-                value={formData.rg}
-                onChange={(e) => setFormData({ ...formData, rg: e.target.value })}
+                value={maskRG(formData.rg || '')}
+                onChange={(e) => setFormData({ ...formData, rg: maskRG(e.target.value) })}
                 className="clinical-input font-mono"
               />
             </div>
@@ -167,10 +171,12 @@ export default function DadosPessoaisTab({
               </label>
               <input
                 type="text"
+                maxLength={15}
+                placeholder="(00) 00000-0000"
                 disabled={!isEditing}
-                value={formData.phone}
-                onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
-                className="clinical-input font-medium"
+                value={maskPhone(formData.phone || '')}
+                onChange={(e) => setFormData({ ...formData, phone: maskPhone(e.target.value) })}
+                className="clinical-input font-medium font-mono"
               />
             </div>
 
@@ -180,10 +186,12 @@ export default function DadosPessoaisTab({
               </label>
               <input
                 type="text"
+                maxLength={15}
+                placeholder="(00) 0000-0000 ou (00) 00000-0000"
                 disabled={!isEditing}
-                value={formData.phone2}
-                onChange={(e) => setFormData({ ...formData, phone2: e.target.value })}
-                className="clinical-input font-medium"
+                value={maskPhone(formData.phone2 || '')}
+                onChange={(e) => setFormData({ ...formData, phone2: maskPhone(e.target.value) })}
+                className="clinical-input font-medium font-mono"
               />
             </div>
 
@@ -249,9 +257,47 @@ export default function DadosPessoaisTab({
           </div>
         </div>
 
+        {/* Seção 4: Responsável Legal */}
+        <div className="pt-3.5 border-t border-slate-100">
+          <span className="font-bold text-[10.5px] uppercase text-forest-800 tracking-wider block mb-3">
+            4. Responsável Legal
+            <span className="normal-case text-slate-400 font-medium tracking-normal ml-1.5">
+              (opcional)
+            </span>
+          </span>
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3.5">
+            <div className="sm:col-span-2">
+              <label className="clinical-label">
+                Nome do Responsável
+              </label>
+              <input
+                type="text"
+                disabled={!isEditing}
+                value={formData.responsibleName || ''}
+                onChange={(e) => setFormData({ ...formData, responsibleName: e.target.value })}
+                className="clinical-input font-medium"
+              />
+            </div>
+
+            <div>
+              <label className="clinical-label">
+                CPF do Responsável
+              </label>
+              <input
+                type="text"
+                maxLength={14}
+                placeholder="000.000.000-00"
+                disabled={!isEditing}
+                value={maskCPF(formData.responsibleCpf || '')}
+                onChange={(e) => setFormData({ ...formData, responsibleCpf: maskCPF(e.target.value) })}
+                className="clinical-input font-mono font-bold"
+              />
+            </div>
+          </div>
+        </div>
+
       </div>
 
     </div>
   );
 }
-

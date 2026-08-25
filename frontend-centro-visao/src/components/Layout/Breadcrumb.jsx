@@ -32,7 +32,7 @@ export default function Breadcrumb({ activeModule, setActiveModule, subTitle }) 
   const today = new Intl.DateTimeFormat('pt-BR', { dateStyle: 'medium' }).format(new Date());
 
   return (
-    <div className="flex items-center justify-between py-2 px-1 text-xs text-slate-500 mb-5 border-b border-slate-200/80 gap-3 select-none">
+    <div className="flex items-center justify-between py-2 px-1 text-xs text-slate-500 mb-5 border-b border-slate-200/80 gap-3 select-none print:hidden">
       <div className="flex items-center space-x-2 min-w-0">
         <button
           type="button"

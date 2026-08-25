@@ -14,10 +14,18 @@ import {
   FolderClock,
   Sparkles,
   CheckSquare,
-  Square
+  Square,
+  Printer
 } from 'lucide-react';
-import { getStoredClinicalSections } from '../../data/clinicalSectionsConfig';
+import { 
+  getStoredClinicalSections, 
+  normalizeFromApi, 
+  saveStoredClinicalSections 
+} from '../../data/clinicalSectionsConfig';
+import { listarSecoesFicha } from '../../api/fichaClinica';
 import { listarConsultasPaciente } from '../../api/pacientes';
+import { obterDadosClinica } from '../../api/configuracoes';
+import { generateAnamnesisHtml, printAnamneseViaIframe } from '../../utils/printAnamnese';
 import {
   obterAnamneseConsulta,
   obterSecaoFichaClinica,
@@ -284,6 +292,8 @@ export default function AnamneseFichaClinica({ patient, consultation, disabled =
   const [savedSection, setSavedSection] = useState('');
   const [savingAllSections, setSavingAllSections] = useState(false);
   const [clinicalConfig, setClinicalConfig] = useState(() => getStoredClinicalSections());
+  const [clinicInfo, setClinicInfo] = useState({ name: '', cnpj: '', phone: '', address: '', city: '', state: '', cep: '' });
+  const [printingAnamnese, setPrintingAnamnese] = useState(false);
   const [loadingAnamnesis, setLoadingAnamnesis] = useState(false);
   const [savingAnamnesis, setSavingAnamnesis] = useState(false);
   const [loadingLastPrescription, setLoadingLastPrescription] = useState(false);
@@ -405,6 +415,28 @@ export default function AnamneseFichaClinica({ patient, consultation, disabled =
   }`;
 
   useEffect(() => {
+    let isMounted = true;
+    const controller = new AbortController();
+
+    listarSecoesFicha({ signal: controller.signal })
+      .then((apiSections) => {
+        if (isMounted && Array.isArray(apiSections) && apiSections.length > 0) {
+          const normalized = normalizeFromApi(apiSections);
+          setClinicalConfig(normalized);
+          saveStoredClinicalSections(normalized);
+        }
+      })
+      .catch(() => {
+        // Silently fallback to local storage
+      });
+
+    return () => {
+      isMounted = false;
+      controller.abort();
+    };
+  }, []);
+
+  useEffect(() => {
     const handleConfigUpdate = () => {
       setClinicalConfig(getStoredClinicalSections());
     };
@@ -412,9 +444,48 @@ export default function AnamneseFichaClinica({ patient, consultation, disabled =
     return () => window.removeEventListener('clinical-sections-updated', handleConfigUpdate);
   }, []);
 
+  useEffect(() => {
+    const controller = new AbortController();
+    obterDadosClinica({ signal: controller.signal })
+      .then((data) => {
+        setClinicInfo({
+          name: data?.nome || data?.name || '',
+          cnpj: data?.cnpj || '',
+          phone: data?.telefone || data?.phone || '',
+          address: data?.endereco || data?.address || '',
+          city: data?.cidade || data?.city || '',
+          state: data?.estado || data?.state || '',
+          cep: data?.cep || '',
+        });
+      })
+      .catch(() => {});
+    return () => controller.abort();
+  }, []);
+
+  const handlePrintAnamnese = () => {
+    if (printingAnamnese) return;
+    setPrintingAnamnese(true);
+    try {
+      const patientData = patient || {
+        name: consultation?.patientName,
+        cpf: consultation?.patientCpf,
+        rg: consultation?.patientRg,
+        birthDate: consultation?.patientBirthDate,
+        phone: consultation?.patientPhone,
+      };
+      const html = generateAnamnesisHtml(anamneseData, patientData, clinicInfo, consultation);
+      printAnamneseViaIframe(html);
+      onNotify?.('success', 'Anamnese enviada para impressão.');
+    } catch {
+      onNotify?.('error', 'Não foi possível imprimir a anamnese.');
+    } finally {
+      setPrintingAnamnese(false);
+    }
+  };
+
   const isSectionEnabled = (id) => {
     const found = clinicalConfig.find(s => s.id === id);
-    return found ? found.enabled : true;
+    return found ? found.enabled !== false : true;
   };
 
   const toggleSection = (id) => {
@@ -427,7 +498,9 @@ export default function AnamneseFichaClinica({ patient, consultation, disabled =
   const toggleAll = (open) => {
     const all = {};
     clinicalConfig.forEach(s => {
-      all[s.id] = open;
+      if (s.enabled !== false) {
+        all[s.id] = open;
+      }
     });
     setOpenSections(all);
   };
@@ -1951,30 +2024,38 @@ export default function AnamneseFichaClinica({ patient, consultation, disabled =
     if (!consultation?.id || disabled || savingAllSections || isAnySectionLoading || isAnySectionSaving) return;
     const hasDxDiagnosis = [anamneseData.dx.refrativo, anamneseData.dx.motor, anamneseData.dx.patologico]
       .some((value) => String(value || '').trim());
-    const saveOperations = [
-      saveAnamnesis,
-      saveLastPrescription,
-      saveVisualAcuity,
-      saveBiomicroscopy,
-      saveKeratometry,
-      saveTonometry,
-      saveForometry,
-      saveOphthalmoscopy,
-      saveDynamicRetinoscopy,
-      saveStaticRetinoscopy,
-      saveMotorEvaluation,
-      saveFinalRx,
-      saveAccommodationAmplitude,
-      saveRefinement,
-      ...(hasDxDiagnosis ? [saveDx] : []),
-      saveAccommodationFacility,
-      saveAddition,
-      savePpc,
-      savePupillaryReflexes,
-      saveFusionalReserves,
-      saveSubjective,
-      saveAmbulatoryTest,
-    ];
+
+    const sectionSaveMap = {
+      anamnese: saveAnamnesis,
+      prescricaoUltimoExame: saveLastPrescription,
+      acuidadeVisual: saveVisualAcuity,
+      biomicroscopia: saveBiomicroscopy,
+      ceratometria: saveKeratometry,
+      tonometria: saveTonometry,
+      forometria: saveForometry,
+      oftalmoscopia: saveOphthalmoscopy,
+      retinoscopiaDinamica: saveDynamicRetinoscopy,
+      retinoscopiaEstatica: saveStaticRetinoscopy,
+      avaliacaoMotora: saveMotorEvaluation,
+      rxFinal: saveFinalRx,
+      amplitudeAcomodacao: saveAccommodationAmplitude,
+      afinamento: saveRefinement,
+      dx: hasDxDiagnosis ? saveDx : null,
+      flexibilidadeAcomodacao: saveAccommodationFacility,
+      adicao: saveAddition,
+      ppc: savePpc,
+      reflexosPupilares: savePupillaryReflexes,
+      reservasFusionais: saveFusionalReserves,
+      subjetivo: saveSubjective,
+      testeAmbulatorial: saveAmbulatoryTest,
+    };
+
+    const activeSaveOps = clinicalConfig
+      .filter((s) => s.enabled !== false)
+      .map((s) => sectionSaveMap[s.id])
+      .filter(Boolean);
+
+    const saveOperations = activeSaveOps.length > 0 ? activeSaveOps : Object.values(sectionSaveMap).filter(Boolean);
 
     setSavingAllSections(true);
     saveAllInProgressRef.current = true;
@@ -2162,1558 +2243,1622 @@ export default function AnamneseFichaClinica({ patient, consultation, disabled =
       {subTab === 'inicio' && (
         <fieldset disabled={savingAllSections} className="space-y-2 disabled:opacity-75">
 
+          {/* Mensagem caso todas as seções estejam desativadas */}
+          {clinicalConfig.length > 0 && clinicalConfig.every(s => s.enabled === false) && (
+            <div className="p-8 text-center bg-slate-50 border border-dashed border-slate-300 rounded-2xl">
+              <FileText className="w-10 h-10 text-slate-400 mx-auto mb-2" />
+              <h4 className="font-bold text-sm text-slate-800">Nenhuma seção ativa na Ficha Clínica</h4>
+              <p className="text-xs text-slate-500 mt-1 max-w-md mx-auto">
+                Todas as seções da ficha clínica estão desativadas no momento. Acesse a tela de Configurações para ativar as seções desejadas.
+              </p>
+            </div>
+          )}
+
           {/* 1. ANAMNESE */}
-          <div data-clinical-section="anamnese" className="border border-slate-200/90 rounded-2xl bg-white shadow-hairline overflow-hidden transition-all">
-            <button
-              onClick={() => toggleSection('anamnese')}
-              className="w-full p-3.5 sm:p-4 flex items-center justify-between bg-slate-50/80 hover:bg-forest-50/20 text-left transition-colors font-bold text-xs uppercase text-slate-900 border-b border-slate-100"
-            >
-              <div className="flex items-center space-x-2">
-                {openSections['anamnese'] ? <ChevronDown className="w-4 h-4 text-forest-700" /> : <ChevronRight className="w-4 h-4 text-slate-400" />}
-                <span>1. Anamnese</span>
-              </div>
-              {openSections['anamnese'] ? (
-                <span className="text-[10px] font-bold text-forest-800 bg-forest-50 px-2 py-0.5 rounded-md border border-forest-200/80 uppercase">
-                  Aberto
-                </span>
-              ) : (
-                <span className="text-[10px] font-bold text-slate-500 uppercase">
-                  Abrir
-                </span>
-              )}
-            </button>
-
-            {openSections['anamnese'] && (
-              <div className="p-5 sm:p-6 space-y-4 text-xs animate-fade-in bg-white">
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  <div className="md:col-span-2">
-                    <label className="clinical-label">Motivo principal da consulta</label>
-                    <input 
-                      type="text" 
-                      value={anamneseData.motivoPrincipal}
-                      onChange={(e) => setAnamneseData({...anamneseData, motivoPrincipal: e.target.value})}
-                      className="clinical-input font-medium" 
-                    />
-                  </div>
-                  <div>
-                    <label className="clinical-label">Data do último exame</label>
-                    <input 
-                      type="date" 
-                      value={anamneseData.dataUltimoExame}
-                      onChange={(e) => setAnamneseData({...anamneseData, dataUltimoExame: e.target.value})}
-                      className="clinical-input font-bold" 
-                    />
-                  </div>
+          {isSectionEnabled('anamnese') && (
+            <div data-clinical-section="anamnese" className="border border-slate-200/90 rounded-2xl bg-white shadow-hairline overflow-hidden transition-all">
+              <button
+                onClick={() => toggleSection('anamnese')}
+                className="w-full p-3.5 sm:p-4 flex items-center justify-between bg-slate-50/80 hover:bg-forest-50/20 text-left transition-colors font-bold text-xs uppercase text-slate-900 border-b border-slate-100"
+              >
+                <div className="flex items-center space-x-2">
+                  {openSections['anamnese'] ? <ChevronDown className="w-4 h-4 text-forest-700" /> : <ChevronRight className="w-4 h-4 text-slate-400" />}
+                  <span>1. Anamnese</span>
                 </div>
+                {openSections['anamnese'] ? (
+                  <span className="text-[10px] font-bold text-forest-800 bg-forest-50 px-2 py-0.5 rounded-md border border-forest-200/80 uppercase">
+                    Aberto
+                  </span>
+                ) : (
+                  <span className="text-[10px] font-bold text-slate-500 uppercase">
+                    Abrir
+                  </span>
+                )}
+              </button>
 
-                <RichTextEditor
-                  value={anamneseData.observacoesGerais}
-                  onChange={(value) => setAnamneseData((current) => ({ ...current, observacoesGerais: value }))}
-                  disabled={disabled || savingAllSections || loadingAnamnesis || savingAnamnesis}
-                />
+              {openSections['anamnese'] && (
+                <div className="p-5 sm:p-6 space-y-4 text-xs animate-fade-in bg-white">
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div className="md:col-span-2">
+                      <label className="clinical-label">Motivo principal da consulta</label>
+                      <input 
+                        type="text" 
+                        value={anamneseData.motivoPrincipal}
+                        onChange={(e) => setAnamneseData({...anamneseData, motivoPrincipal: e.target.value})}
+                        className="clinical-input font-medium" 
+                      />
+                    </div>
+                    <div>
+                      <label className="clinical-label">Data do último exame</label>
+                      <input 
+                        type="date" 
+                        value={anamneseData.dataUltimoExame}
+                        onChange={(e) => setAnamneseData({...anamneseData, dataUltimoExame: e.target.value})}
+                        className="clinical-input font-bold" 
+                      />
+                    </div>
+                  </div>
 
-                {/* Sintomas Checkboxes */}
-                <div>
-                  <span className="font-extrabold text-slate-900 uppercase block mb-1.5">Sintomas</span>
-                  <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 gap-2">
-                    {[
-                      "Prurido", "Fotofobia", "Hiperemia", "Pterígio", "Epífera", "Trauma", 
-                      "Vermelhidão", "Ardência", "Dor Ocular", "Lacrimejamento", "Força a Visão", 
-                      "Cansaço Visual", "Sensibilidade à Luz"
-                    ].map(s => {
-                      const checked = anamneseData.sintomas.includes(s);
-                      return (
-                        <label key={s} className="flex items-center space-x-1.5 cursor-pointer bg-slate-50/80 p-2 rounded-xl border border-slate-200/80 text-[11px] font-semibold text-slate-800 hover:bg-forest-50/60 hover:border-forest-200 transition-all">
+                  <RichTextEditor
+                    value={anamneseData.observacoesGerais}
+                    onChange={(value) => setAnamneseData((current) => ({ ...current, observacoesGerais: value }))}
+                    disabled={disabled || savingAllSections || loadingAnamnesis || savingAnamnesis}
+                  />
+
+                  {/* Sintomas Checkboxes */}
+                  <div>
+                    <span className="font-extrabold text-slate-900 uppercase block mb-1.5">Sintomas</span>
+                    <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 gap-2">
+                      {[
+                        "Prurido", "Fotofobia", "Hiperemia", "Pterígio", "Epífera", "Trauma", 
+                        "Vermelhidão", "Ardência", "Dor Ocular", "Lacrimejamento", "Força a Visão", 
+                        "Cansaço Visual", "Sensibilidade à Luz"
+                      ].map(s => {
+                        const checked = anamneseData.sintomas.includes(s);
+                        return (
+                          <label key={s} className="flex items-center space-x-1.5 cursor-pointer bg-slate-50/80 p-2 rounded-xl border border-slate-200/80 text-[11px] font-semibold text-slate-800 hover:bg-forest-50/60 hover:border-forest-200 transition-all">
+                            <input 
+                              type="checkbox" 
+                              checked={checked} 
+                              onChange={() => toggleArrayItem('sintomas', s)}
+                              className="accent-forest-700"
+                            />
+                            <span>{s}</span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Doenças Oculares */}
+                  <div>
+                    <span className="font-extrabold text-slate-900 uppercase block mb-1.5">Doenças Oculares</span>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-2">
+                      {["Glaucoma", "Catarata", "Pterígio", "Ceratocone", "Estrabismo", "Conjuntivite"].map(d => (
+                        <label key={d} className="flex items-center space-x-1.5 cursor-pointer bg-slate-50/80 p-2 rounded-xl border border-slate-200/80 text-[11px] font-semibold text-slate-800 hover:bg-forest-50/60 hover:border-forest-200 transition-all">
                           <input 
                             type="checkbox" 
-                            checked={checked} 
-                            onChange={() => toggleArrayItem('sintomas', s)}
+                            checked={anamneseData.doencasOculares.includes(d)} 
+                            onChange={() => toggleArrayItem('doencasOculares', d)}
                             className="accent-forest-700"
                           />
-                          <span>{s}</span>
+                          <span>{d}</span>
                         </label>
-                      );
-                    })}
+                      ))}
+                    </div>
                   </div>
-                </div>
 
-                {/* Doenças Oculares */}
-                <div>
-                  <span className="font-extrabold text-slate-900 uppercase block mb-1.5">Doenças Oculares</span>
-                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-2">
-                    {["Glaucoma", "Catarata", "Pterígio", "Ceratocone", "Estrabismo", "Conjuntivite"].map(d => (
-                      <label key={d} className="flex items-center space-x-1.5 cursor-pointer bg-slate-50/80 p-2 rounded-xl border border-slate-200/80 text-[11px] font-semibold text-slate-800 hover:bg-forest-50/60 hover:border-forest-200 transition-all">
-                        <input 
-                          type="checkbox" 
-                          checked={anamneseData.doencasOculares.includes(d)} 
-                          onChange={() => toggleArrayItem('doencasOculares', d)}
-                          className="accent-forest-700"
-                        />
-                        <span>{d}</span>
-                      </label>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Doenças Sistêmicas */}
-                <div>
-                  <span className="font-extrabold text-slate-900 uppercase block mb-1.5">Doenças Sistêmicas</span>
-                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2">
-                    {["Hipertensão", "Diabetes", "Colesterol", "Asma", "Depressão", "Renite", "Sinusite", "Alergias", "Reumatismo"].map(d => (
-                      <label key={d} className="flex items-center space-x-1.5 cursor-pointer bg-slate-50/80 p-2 rounded-xl border border-slate-200/80 text-[11px] font-semibold text-slate-800 hover:bg-forest-50/60 hover:border-forest-200 transition-all">
-                        <input 
-                          type="checkbox" 
-                          checked={anamneseData.doencasSistemicas.includes(d)} 
-                          onChange={() => toggleArrayItem('doencasSistemicas', d)}
-                          className="accent-forest-700"
-                        />
-                        <span>{d}</span>
-                      </label>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Medicamentos */}
-                <div>
-                  <span className="font-extrabold text-slate-900 uppercase block mb-1.5">Medicamentos em Uso</span>
-                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-2">
-                    {[
-                      "Losartana", "Captopril", "Atenolol", "Nifidipino", "Propanolol", "Hidrocloratiazida", 
-                      "Metiformina", "Glibencamida", "AAS", "Sinvastantina", "Polaramine", "Omeprazol"
-                    ].map(m => (
-                      <label key={m} className="flex items-center space-x-1.5 cursor-pointer bg-slate-50/80 p-2 rounded-xl border border-slate-200/80 text-[11px] font-semibold text-slate-800 hover:bg-forest-50/60 hover:border-forest-200 transition-all">
-                        <input 
-                          type="checkbox" 
-                          checked={anamneseData.medicamentos.includes(m)} 
-                          onChange={() => toggleArrayItem('medicamentos', m)}
-                          className="accent-forest-700"
-                        />
-                        <span>{m}</span>
-                      </label>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Outros Registros */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 bg-slate-50/60 p-4 rounded-2xl border border-slate-200/80">
+                  {/* Doenças Sistêmicas */}
                   <div>
-                    <label className="block font-bold text-slate-700 text-[11px] mb-1">Outros Sintomas</label>
-                    <input type="text" value={anamneseData.outrosSintomas} onChange={(e) => setAnamneseData({...anamneseData, outrosSintomas: e.target.value})} className="clinical-input font-medium text-xs" />
+                    <span className="font-extrabold text-slate-900 uppercase block mb-1.5">Doenças Sistêmicas</span>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2">
+                      {["Hipertensão", "Diabetes", "Colesterol", "Asma", "Depressão", "Renite", "Sinusite", "Alergias", "Reumatismo"].map(d => (
+                        <label key={d} className="flex items-center space-x-1.5 cursor-pointer bg-slate-50/80 p-2 rounded-xl border border-slate-200/80 text-[11px] font-semibold text-slate-800 hover:bg-forest-50/60 hover:border-forest-200 transition-all">
+                          <input 
+                            type="checkbox" 
+                            checked={anamneseData.doencasSistemicas.includes(d)} 
+                            onChange={() => toggleArrayItem('doencasSistemicas', d)}
+                            className="accent-forest-700"
+                          />
+                          <span>{d}</span>
+                        </label>
+                      ))}
+                    </div>
                   </div>
-                  <div>
-                    <label className="block font-bold text-slate-700 text-[11px] mb-1">Outras Doenças Oculares</label>
-                    <input type="text" value={anamneseData.outrasDoencasOculares} onChange={(e) => setAnamneseData({...anamneseData, outrasDoencasOculares: e.target.value})} className="clinical-input font-medium text-xs" />
-                  </div>
-                  <div>
-                    <label className="block font-bold text-slate-700 text-[11px] mb-1">Outras Doenças Sistêmicas</label>
-                    <input type="text" value={anamneseData.outrasDoencasSistemicas} onChange={(e) => setAnamneseData({...anamneseData, outrasDoencasSistemicas: e.target.value})} className="clinical-input font-medium text-xs" />
-                  </div>
-                  <div>
-                    <label className="block font-bold text-slate-700 text-[11px] mb-1">Outros Medicamentos</label>
-                    <input type="text" value={anamneseData.outrosMedicamentos} onChange={(e) => setAnamneseData({...anamneseData, outrosMedicamentos: e.target.value})} className="clinical-input font-medium text-xs" />
-                  </div>
-                </div>
 
-                {/* Uso de Óculos & Lentes & Cefaleia */}
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  {/* Medicamentos */}
+                  <div>
+                    <span className="font-extrabold text-slate-900 uppercase block mb-1.5">Medicamentos em Uso</span>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-2">
+                      {[
+                        "Losartana", "Captopril", "Atenolol", "Nifidipino", "Propanolol", "Hidrocloratiazida", 
+                        "Metiformina", "Glibencamida", "AAS", "Sinvastantina", "Polaramine", "Omeprazol"
+                      ].map(m => (
+                        <label key={m} className="flex items-center space-x-1.5 cursor-pointer bg-slate-50/80 p-2 rounded-xl border border-slate-200/80 text-[11px] font-semibold text-slate-800 hover:bg-forest-50/60 hover:border-forest-200 transition-all">
+                          <input 
+                            type="checkbox" 
+                            checked={anamneseData.medicamentos.includes(m)} 
+                            onChange={() => toggleArrayItem('medicamentos', m)}
+                            className="accent-forest-700"
+                          />
+                          <span>{m}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Outros Registros */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 bg-slate-50/60 p-4 rounded-2xl border border-slate-200/80">
+                    <div>
+                      <label className="block font-bold text-slate-700 text-[11px] mb-1">Outros Sintomas</label>
+                      <input type="text" value={anamneseData.outrosSintomas} onChange={(e) => setAnamneseData({...anamneseData, outrosSintomas: e.target.value})} className="clinical-input font-medium text-xs" />
+                    </div>
+                    <div>
+                      <label className="block font-bold text-slate-700 text-[11px] mb-1">Outras Doenças Oculares</label>
+                      <input type="text" value={anamneseData.outrasDoencasOculares} onChange={(e) => setAnamneseData({...anamneseData, outrasDoencasOculares: e.target.value})} className="clinical-input font-medium text-xs" />
+                    </div>
+                    <div>
+                      <label className="block font-bold text-slate-700 text-[11px] mb-1">Outras Doenças Sistêmicas</label>
+                      <input type="text" value={anamneseData.outrasDoencasSistemicas} onChange={(e) => setAnamneseData({...anamneseData, outrasDoencasSistemicas: e.target.value})} className="clinical-input font-medium text-xs" />
+                    </div>
+                    <div>
+                      <label className="block font-bold text-slate-700 text-[11px] mb-1">Outros Medicamentos</label>
+                      <input type="text" value={anamneseData.outrosMedicamentos} onChange={(e) => setAnamneseData({...anamneseData, outrosMedicamentos: e.target.value})} className="clinical-input font-medium text-xs" />
+                    </div>
+                  </div>
+
+                  {/* Uso de Óculos & Lentes & Cefaleia */}
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div className="p-4 bg-slate-50/60 rounded-2xl border border-slate-200/80 space-y-2">
+                      <span className="font-extrabold text-slate-900 uppercase block text-[11px]">Uso de Óculos</span>
+                      {["Usa Óculos", "Dificuldade Longe", "Dificuldade Perto"].map(o => (
+                        <label key={o} className="flex items-center space-x-1.5 text-xs font-medium cursor-pointer">
+                          <input type="checkbox" checked={anamneseData.usoOculos.includes(o)} onChange={() => toggleArrayItem('usoOculos', o)} className="accent-forest-700" />
+                          <span>{o}</span>
+                        </label>
+                      ))}
+                    </div>
+
+                    <div className="p-4 bg-slate-50/60 rounded-2xl border border-slate-200/80 space-y-2">
+                      <span className="font-extrabold text-slate-900 uppercase block text-[11px]">Uso de Lentes de Contato</span>
+                      {["Usa Lente de Contato?", "Dificuldade Longe", "Dificuldade Perto"].map(l => (
+                        <label key={l} className="flex items-center space-x-1.5 text-xs font-medium cursor-pointer">
+                          <input type="checkbox" checked={anamneseData.usoLentes.includes(l)} onChange={() => toggleArrayItem('usoLentes', l)} className="accent-forest-700" />
+                          <span>{l}</span>
+                        </label>
+                      ))}
+                    </div>
+
+                    <div className="p-4 bg-slate-50/60 rounded-2xl border border-slate-200/80 space-y-2">
+                      <span className="font-extrabold text-slate-900 uppercase block text-[11px]">Antecedentes Familiares</span>
+                      {["Diabetes", "Estrabismo", "Glaucoma", "Pressão Alta", "Catarata", "Alguém usa óculos?"].map(a => (
+                        <label key={a} className="flex items-center space-x-1.5 text-xs font-medium cursor-pointer">
+                          <input type="checkbox" checked={anamneseData.antecedentes.includes(a)} onChange={() => toggleArrayItem('antecedentes', a)} className="accent-forest-700" />
+                          <span>{a}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Cefaleia */}
                   <div className="p-4 bg-slate-50/60 rounded-2xl border border-slate-200/80 space-y-2">
-                    <span className="font-extrabold text-slate-900 uppercase block text-[11px]">Uso de Óculos</span>
-                    {["Usa Óculos", "Dificuldade Longe", "Dificuldade Perto"].map(o => (
-                      <label key={o} className="flex items-center space-x-1.5 text-xs font-medium cursor-pointer">
-                        <input type="checkbox" checked={anamneseData.usoOculos.includes(o)} onChange={() => toggleArrayItem('usoOculos', o)} className="accent-forest-700" />
-                        <span>{o}</span>
-                      </label>
-                    ))}
+                    <span className="font-extrabold text-slate-900 uppercase block text-[11px]">Cefaleia (Dor de Cabeça)</span>
+                    <div className="grid grid-cols-2 sm:grid-cols-5 md:grid-cols-8 gap-2">
+                      {[
+                        "Dor de cabeça", "Frontal", "Temporal", "Occipital", "Parietal", "Todo o dia", 
+                        "Eventual", "Segue o sexo", "Fim de semana", "Manhã", "Tarde", "Noite", 
+                        "Infrequente", "Frequente", "Crônica"
+                      ].map(c => (
+                        <label key={c} className="flex items-center space-x-1.5 text-[11px] font-medium cursor-pointer">
+                          <input type="checkbox" checked={anamneseData.cefaleia.includes(c)} onChange={() => toggleArrayItem('cefaleia', c)} className="accent-forest-700" />
+                          <span>{c}</span>
+                        </label>
+                      ))}
+                    </div>
                   </div>
 
-                  <div className="p-4 bg-slate-50/60 rounded-2xl border border-slate-200/80 space-y-2">
-                    <span className="font-extrabold text-slate-900 uppercase block text-[11px]">Uso de Lentes de Contato</span>
-                    {["Usa Lente de Contato?", "Dificuldade Longe", "Dificuldade Perto"].map(l => (
-                      <label key={l} className="flex items-center space-x-1.5 text-xs font-medium cursor-pointer">
-                        <input type="checkbox" checked={anamneseData.usoLentes.includes(l)} onChange={() => toggleArrayItem('usoLentes', l)} className="accent-forest-700" />
-                        <span>{l}</span>
-                      </label>
-                    ))}
+                  {/* Observações da Anamnese */}
+                  <div>
+                    <label className="block font-bold text-slate-800 mb-1">Observações da Anamnese</label>
+                    <textarea 
+                      rows={2} 
+                      value={anamneseData.observacoesAnamnese} 
+                      onChange={(e) => setAnamneseData({...anamneseData, observacoesAnamnese: e.target.value})}
+                      className="clinical-input h-auto min-h-20 py-2 text-xs font-medium resize-y" 
+                    />
                   </div>
-
-                  <div className="p-4 bg-slate-50/60 rounded-2xl border border-slate-200/80 space-y-2">
-                    <span className="font-extrabold text-slate-900 uppercase block text-[11px]">Antecedentes Familiares</span>
-                    {["Diabetes", "Estrabismo", "Glaucoma", "Pressão Alta", "Catarata", "Alguém usa óculos?"].map(a => (
-                      <label key={a} className="flex items-center space-x-1.5 text-xs font-medium cursor-pointer">
-                        <input type="checkbox" checked={anamneseData.antecedentes.includes(a)} onChange={() => toggleArrayItem('antecedentes', a)} className="accent-forest-700" />
-                        <span>{a}</span>
-                      </label>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Cefaleia */}
-                <div className="p-4 bg-slate-50/60 rounded-2xl border border-slate-200/80 space-y-2">
-                  <span className="font-extrabold text-slate-900 uppercase block text-[11px]">Cefaleia (Dor de Cabeça)</span>
-                  <div className="grid grid-cols-2 sm:grid-cols-5 md:grid-cols-8 gap-2">
-                    {[
-                      "Dor de cabeça", "Frontal", "Temporal", "Occipital", "Parietal", "Todo o dia", 
-                      "Eventual", "Segue o sexo", "Fim de semana", "Manhã", "Tarde", "Noite", 
-                      "Infrequente", "Frequente", "Crônica"
-                    ].map(c => (
-                      <label key={c} className="flex items-center space-x-1.5 text-[11px] font-medium cursor-pointer">
-                        <input type="checkbox" checked={anamneseData.cefaleia.includes(c)} onChange={() => toggleArrayItem('cefaleia', c)} className="accent-forest-700" />
-                        <span>{c}</span>
-                      </label>
-                    ))}
+                  <div className="flex justify-end items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={handlePrintAnamnese}
+                      disabled={loadingAnamnesis || printingAnamnese}
+                      className="btn-secondary py-1.5 px-3.5 inline-flex items-center gap-1.5"
+                      title="Imprimir esta Anamnese"
+                    >
+                      {printingAnamnese ? <Clock className="w-3.5 h-3.5 animate-spin" /> : <Printer className="w-3.5 h-3.5 text-forest-700" />}
+                      <span>Imprimir Anamnese</span>
+                    </button>
+                    <button type="button" onClick={saveAnamnesis} disabled={disabled || loadingAnamnesis || savingAnamnesis} className={saveButtonClass('anamnese')}>
+                      {savingAnamnesis ? <Clock className="w-3.5 h-3.5 animate-spin" /> : savedSection === 'anamnese' ? <Check className="w-3.5 h-3.5" /> : <Save className="w-3.5 h-3.5" />}
+                      <span>{savingAnamnesis ? 'Salvando...' : savedSection === 'anamnese' ? 'Salvo com sucesso' : 'Salvar Anamnese'}</span>
+                    </button>
                   </div>
                 </div>
-
-                {/* Observações da Anamnese */}
-                <div>
-                  <label className="block font-bold text-slate-800 mb-1">Observações da Anamnese</label>
-                  <textarea 
-                    rows={2} 
-                    value={anamneseData.observacoesAnamnese} 
-                    onChange={(e) => setAnamneseData({...anamneseData, observacoesAnamnese: e.target.value})}
-                    className="clinical-input h-auto min-h-20 py-2 text-xs font-medium resize-y" 
-                  />
-                </div>
-                <div className="flex justify-end">
-                  <button type="button" onClick={saveAnamnesis} disabled={disabled || loadingAnamnesis || savingAnamnesis} className={saveButtonClass('anamnese')}>
-                    {savingAnamnesis ? <Clock className="w-3.5 h-3.5 animate-spin" /> : savedSection === 'anamnese' ? <Check className="w-3.5 h-3.5" /> : <Save className="w-3.5 h-3.5" />}
-                    <span>{savingAnamnesis ? 'Salvando...' : savedSection === 'anamnese' ? 'Salvo com sucesso' : 'Salvar Anamnese'}</span>
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
+              )}
+            </div>
+          )}
 
           {/* 2. PRESCRIÇÃO DO ÚLTIMO EXAME */}
-          <div data-clinical-section="prescricaoUltimoExame" className="border border-slate-200/90 rounded-2xl bg-white shadow-hairline overflow-hidden transition-all">
-            <button
-              onClick={() => toggleSection('prescricaoUltimoExame')}
-              className="w-full p-3.5 flex items-center justify-between bg-slate-50 hover:bg-forest-50/50 text-left transition-colors font-extrabold text-xs uppercase text-slate-900"
-            >
-              <div className="flex items-center space-x-2">
-                {openSections['prescricaoUltimoExame'] ? <ChevronDown className="w-4 h-4 text-forest-700" /> : <ChevronRight className="w-4 h-4 text-slate-400" />}
-                <span>2. Prescrição do Último Exame</span>
-              </div>
-              {openSections['prescricaoUltimoExame'] ? (
-                <span className="text-[10px] font-bold text-forest-800 bg-forest-50 px-2 py-0.5 rounded-md border border-forest-200/80 uppercase">
-                  Aberto
-                </span>
-              ) : (
-                <span className="text-[10px] font-bold text-slate-500 uppercase">
-                  Abrir
-                </span>
-              )}
-            </button>
+          {isSectionEnabled('prescricaoUltimoExame') && (
+            <div data-clinical-section="prescricaoUltimoExame" className="border border-slate-200/90 rounded-2xl bg-white shadow-hairline overflow-hidden transition-all">
+              <button
+                onClick={() => toggleSection('prescricaoUltimoExame')}
+                className="w-full p-3.5 flex items-center justify-between bg-slate-50 hover:bg-forest-50/50 text-left transition-colors font-extrabold text-xs uppercase text-slate-900"
+              >
+                <div className="flex items-center space-x-2">
+                  {openSections['prescricaoUltimoExame'] ? <ChevronDown className="w-4 h-4 text-forest-700" /> : <ChevronRight className="w-4 h-4 text-slate-400" />}
+                  <span>2. Prescrição do Último Exame</span>
+                </div>
+                {openSections['prescricaoUltimoExame'] ? (
+                  <span className="text-[10px] font-bold text-forest-800 bg-forest-50 px-2 py-0.5 rounded-md border border-forest-200/80 uppercase">
+                    Aberto
+                  </span>
+                ) : (
+                  <span className="text-[10px] font-bold text-slate-500 uppercase">
+                    Abrir
+                  </span>
+                )}
+              </button>
 
-            {openSections['prescricaoUltimoExame'] && (
-              <div className="p-4 space-y-3 text-xs border-t border-slate-200 animate-fade-in">
-                <div className="overflow-x-auto border border-slate-200/80 rounded-2xl shadow-hairline my-2"><table className="w-full text-center border-collapse text-xs">
-                    <thead>
-                      <tr className="bg-slate-100 border-b border-slate-200/80 font-extrabold text-[11px] text-slate-700 uppercase">
-                        <th className="py-2 px-3 text-left">Olho</th>
-                        <th className="py-2 px-3">Esférico</th>
-                        <th className="py-2 px-3">Cilíndrico</th>
-                        <th className="py-2 px-3">Eixo</th>
-                        <th className="py-2 px-3">Adição</th>
-                        <th className="py-2 px-3">DNP</th>
-                        <th className="py-2 px-3">Alt</th>
-                        <th className="py-2 px-3">Lentes</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-200 font-mono">
-                      {['od', 'oe'].map(eye => (
-                        <tr key={eye}>
-                          <td className="py-2 px-3 text-left font-bold font-sans uppercase">{eye === 'od' ? 'Olho Direito (OD)' : 'Olho Esquerdo (OE)'}</td>
-                          <td className="py-1 px-1"><input type="number" step="0.25" value={anamneseData.ultimoExame[eye].esferico} onChange={(event) => updateLastPrescription(eye, 'esferico', event.target.value)} className="clinical-input h-8 text-center font-mono font-bold text-xs" /></td>
-                          <td className="py-1 px-1"><input type="number" step="0.25" value={anamneseData.ultimoExame[eye].cilindrico} onChange={(event) => updateLastPrescription(eye, 'cilindrico', event.target.value)} className="clinical-input h-8 text-center font-mono font-bold text-xs" /></td>
-                          <td className="py-1 px-1"><input type="number" min="0" max="180" value={anamneseData.ultimoExame[eye].eixo} onChange={(event) => updateLastPrescription(eye, 'eixo', event.target.value)} className="clinical-input h-8 text-center font-mono font-bold text-xs" /></td>
-                          <td className="py-1 px-1"><input type="number" step="0.25" value={anamneseData.ultimoExame[eye].adicao} onChange={(event) => updateLastPrescription(eye, 'adicao', event.target.value)} className="clinical-input h-8 text-center font-mono font-bold text-xs" /></td>
-                          <td className="py-1 px-1"><input type="text" value={anamneseData.ultimoExame[eye].dnp} onChange={(event) => updateLastPrescription(eye, 'dnp', event.target.value)} className="clinical-input h-8 text-center font-mono font-bold text-xs" /></td>
-                          <td className="py-1 px-1"><input type="text" value={anamneseData.ultimoExame[eye].alt} onChange={(event) => updateLastPrescription(eye, 'alt', event.target.value)} className="clinical-input h-8 text-center font-mono font-bold text-xs" /></td>
-                          <td className="py-1 px-1"><input type="text" value={anamneseData.ultimoExame[eye].lentes} onChange={(event) => updateLastPrescription(eye, 'lentes', event.target.value)} className="clinical-input h-8 text-xs font-medium" /></td>
+              {openSections['prescricaoUltimoExame'] && (
+                <div className="p-4 space-y-3 text-xs border-t border-slate-200 animate-fade-in">
+                  <div className="overflow-x-auto border border-slate-200/80 rounded-2xl shadow-hairline my-2"><table className="w-full text-center border-collapse text-xs">
+                      <thead>
+                        <tr className="bg-slate-100 border-b border-slate-200/80 font-extrabold text-[11px] text-slate-700 uppercase">
+                          <th className="py-2 px-3 text-left">Olho</th>
+                          <th className="py-2 px-3">Esférico</th>
+                          <th className="py-2 px-3">Cilíndrico</th>
+                          <th className="py-2 px-3">Eixo</th>
+                          <th className="py-2 px-3">Adição</th>
+                          <th className="py-2 px-3">DNP</th>
+                          <th className="py-2 px-3">Alt</th>
+                          <th className="py-2 px-3">Lentes</th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      </thead>
+                      <tbody className="divide-y divide-slate-200 font-mono">
+                        {['od', 'oe'].map(eye => (
+                          <tr key={eye}>
+                            <td className="py-2 px-3 text-left font-bold font-sans uppercase">{eye === 'od' ? 'Olho Direito (OD)' : 'Olho Esquerdo (OE)'}</td>
+                            <td className="py-1 px-1"><input type="number" step="0.25" value={anamneseData.ultimoExame[eye].esferico} onChange={(event) => updateLastPrescription(eye, 'esferico', event.target.value)} className="clinical-input h-8 text-center font-mono font-bold text-xs" /></td>
+                            <td className="py-1 px-1"><input type="number" step="0.25" value={anamneseData.ultimoExame[eye].cilindrico} onChange={(event) => updateLastPrescription(eye, 'cilindrico', event.target.value)} className="clinical-input h-8 text-center font-mono font-bold text-xs" /></td>
+                            <td className="py-1 px-1"><input type="number" min="0" max="180" value={anamneseData.ultimoExame[eye].eixo} onChange={(event) => updateLastPrescription(eye, 'eixo', event.target.value)} className="clinical-input h-8 text-center font-mono font-bold text-xs" /></td>
+                            <td className="py-1 px-1"><input type="number" step="0.25" value={anamneseData.ultimoExame[eye].adicao} onChange={(event) => updateLastPrescription(eye, 'adicao', event.target.value)} className="clinical-input h-8 text-center font-mono font-bold text-xs" /></td>
+                            <td className="py-1 px-1"><input type="text" value={anamneseData.ultimoExame[eye].dnp} onChange={(event) => updateLastPrescription(eye, 'dnp', event.target.value)} className="clinical-input h-8 text-center font-mono font-bold text-xs" /></td>
+                            <td className="py-1 px-1"><input type="text" value={anamneseData.ultimoExame[eye].alt} onChange={(event) => updateLastPrescription(eye, 'alt', event.target.value)} className="clinical-input h-8 text-center font-mono font-bold text-xs" /></td>
+                            <td className="py-1 px-1"><input type="text" value={anamneseData.ultimoExame[eye].lentes} onChange={(event) => updateLastPrescription(eye, 'lentes', event.target.value)} className="clinical-input h-8 text-xs font-medium" /></td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <label className="block">
+                      <span className="block font-bold text-slate-700 mb-1">Filtro</span>
+                      <input type="text" value={lastPrescriptionExtra.filtro || ''} onChange={(event) => setLastPrescriptionExtra((current) => ({ ...current, filtro: event.target.value }))} className="clinical-input h-8 text-xs font-medium" />
+                    </label>
+                    <label className="block">
+                      <span className="block font-bold text-slate-700 mb-1">Cor</span>
+                      <input type="text" value={lastPrescriptionExtra.cor || ''} onChange={(event) => setLastPrescriptionExtra((current) => ({ ...current, cor: event.target.value }))} className="clinical-input h-8 text-xs font-medium" />
+                    </label>
+                  </div>
                   <label className="block">
-                    <span className="block font-bold text-slate-700 mb-1">Filtro</span>
-                    <input type="text" value={lastPrescriptionExtra.filtro || ''} onChange={(event) => setLastPrescriptionExtra((current) => ({ ...current, filtro: event.target.value }))} className="clinical-input h-8 text-xs font-medium" />
+                    <span className="block font-bold text-slate-700 mb-1">Observações</span>
+                    <textarea rows={2} value={lastPrescriptionExtra.observacoes || ''} onChange={(event) => setLastPrescriptionExtra((current) => ({ ...current, observacoes: event.target.value }))} className="clinical-input h-auto min-h-20 py-2 text-xs font-medium resize-y" />
                   </label>
-                  <label className="block">
-                    <span className="block font-bold text-slate-700 mb-1">Cor</span>
-                    <input type="text" value={lastPrescriptionExtra.cor || ''} onChange={(event) => setLastPrescriptionExtra((current) => ({ ...current, cor: event.target.value }))} className="clinical-input h-8 text-xs font-medium" />
-                  </label>
+                  <div className="flex justify-end">
+                    <button
+                      type="button"
+                      onClick={saveLastPrescription}
+                      disabled={disabled || loadingLastPrescription || savingLastPrescription}
+                      className={saveButtonClass('prescricaoUltimoExame')}
+                    >
+                      {savingLastPrescription ? <Clock className="w-3.5 h-3.5 animate-spin" /> : savedSection === 'prescricaoUltimoExame' ? <Check className="w-3.5 h-3.5" /> : <Save className="w-3.5 h-3.5" />}
+                      <span>{savingLastPrescription ? 'Salvando...' : savedSection === 'prescricaoUltimoExame' ? 'Salvo com sucesso' : 'Salvar Prescrição'}</span>
+                    </button>
+                  </div>
                 </div>
-                <label className="block">
-                  <span className="block font-bold text-slate-700 mb-1">Observações</span>
-                  <textarea rows={2} value={lastPrescriptionExtra.observacoes || ''} onChange={(event) => setLastPrescriptionExtra((current) => ({ ...current, observacoes: event.target.value }))} className="clinical-input h-auto min-h-20 py-2 text-xs font-medium resize-y" />
-                </label>
-                <div className="flex justify-end">
-                  <button
-                    type="button"
-                    onClick={saveLastPrescription}
-                    disabled={disabled || loadingLastPrescription || savingLastPrescription}
-                    className={saveButtonClass('prescricaoUltimoExame')}
-                  >
-                    {savingLastPrescription ? <Clock className="w-3.5 h-3.5 animate-spin" /> : savedSection === 'prescricaoUltimoExame' ? <Check className="w-3.5 h-3.5" /> : <Save className="w-3.5 h-3.5" />}
-                    <span>{savingLastPrescription ? 'Salvando...' : savedSection === 'prescricaoUltimoExame' ? 'Salvo com sucesso' : 'Salvar Prescrição'}</span>
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
+              )}
+            </div>
+          )}
 
           {/* 3. ACUIDADE VISUAL */}
-          <div data-clinical-section="acuidadeVisual" className="border border-slate-200/90 rounded-2xl bg-white shadow-hairline overflow-hidden transition-all">
-            <button
-              onClick={() => toggleSection('acuidadeVisual')}
-              className="w-full p-3.5 flex items-center justify-between bg-slate-50 hover:bg-forest-50/50 text-left transition-colors font-extrabold text-xs uppercase text-slate-900"
-            >
-              <div className="flex items-center space-x-2">
-                {openSections['acuidadeVisual'] ? <ChevronDown className="w-4 h-4 text-forest-700" /> : <ChevronRight className="w-4 h-4 text-slate-400" />}
-                <span>3. Acuidade Visual</span>
-              </div>
-              {openSections['acuidadeVisual'] ? (
-                <span className="text-[10px] font-bold text-forest-800 bg-forest-50 px-2 py-0.5 rounded-md border border-forest-200/80 uppercase">
-                  Aberto
-                </span>
-              ) : (
-                <span className="text-[10px] font-bold text-slate-500 uppercase">
-                  Abrir
-                </span>
-              )}
-            </button>
+          {isSectionEnabled('acuidadeVisual') && (
+            <div data-clinical-section="acuidadeVisual" className="border border-slate-200/90 rounded-2xl bg-white shadow-hairline overflow-hidden transition-all">
+              <button
+                onClick={() => toggleSection('acuidadeVisual')}
+                className="w-full p-3.5 flex items-center justify-between bg-slate-50 hover:bg-forest-50/50 text-left transition-colors font-extrabold text-xs uppercase text-slate-900"
+              >
+                <div className="flex items-center space-x-2">
+                  {openSections['acuidadeVisual'] ? <ChevronDown className="w-4 h-4 text-forest-700" /> : <ChevronRight className="w-4 h-4 text-slate-400" />}
+                  <span>3. Acuidade Visual</span>
+                </div>
+                {openSections['acuidadeVisual'] ? (
+                  <span className="text-[10px] font-bold text-forest-800 bg-forest-50 px-2 py-0.5 rounded-md border border-forest-200/80 uppercase">
+                    Aberto
+                  </span>
+                ) : (
+                  <span className="text-[10px] font-bold text-slate-500 uppercase">
+                    Abrir
+                  </span>
+                )}
+              </button>
 
-            {openSections['acuidadeVisual'] && (
-              <div className="p-4 space-y-4 text-xs border-t border-slate-200 animate-fade-in">
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 max-w-2xl">
+              {openSections['acuidadeVisual'] && (
+                <div className="p-4 space-y-4 text-xs border-t border-slate-200 animate-fade-in">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 max-w-2xl">
+                    <label className="block">
+                      <span className="block font-bold text-slate-700 mb-1">Tipo de Optotipo</span>
+                      <select
+                        value={anamneseData.acuidade.optotipo}
+                        onChange={(event) => setAnamneseData((current) => ({ ...current, acuidade: { ...current.acuidade, optotipo: event.target.value } }))}
+                        className="clinical-input h-8 text-xs font-medium"
+                      >
+                        <option value="">Selecione</option>
+                        <option value="Snellen">Snellen</option>
+                        <option value="Tumbling E">Tumbling E</option>
+                        <option value="Figuras">Figuras</option>
+                        <option value="LogMAR">LogMAR</option>
+                      </select>
+                    </label>
+                    <label className="block">
+                      <span className="block font-bold text-slate-700 mb-1">Visão habitual</span>
+                      <input
+                        type="text"
+                        value={anamneseData.acuidade.visaoHabitual}
+                        onChange={(event) => setAnamneseData((current) => ({ ...current, acuidade: { ...current.acuidade, visaoHabitual: event.target.value } }))}
+                        className="clinical-input h-8 text-xs font-medium"
+                      />
+                    </label>
+                  </div>
+
+                  <div className="overflow-x-auto border border-slate-200/80 rounded-2xl shadow-hairline my-2"><table className="w-full min-w-[760px] text-center border-collapse text-xs">
+                      <thead>
+                        <tr className="bg-slate-100 border-b border-slate-200/80 font-extrabold text-[11px] text-slate-700 uppercase">
+                          <th rowSpan={2} className="py-2 px-3 text-left border-r border-slate-200/80">Olho</th>
+                          <th colSpan={3} className="py-2 px-3 border-r border-slate-200/80">Sem correção</th>
+                          <th colSpan={3} className="py-2 px-3">Com correção</th>
+                        </tr>
+                        <tr className="bg-slate-50 border-b border-slate-200/80 font-bold text-[10px] text-slate-600 uppercase">
+                          <th className="py-1.5 px-2">VL</th>
+                          <th className="py-1.5 px-2">VP</th>
+                          <th className="py-1.5 px-2 border-r border-slate-200/80">PH</th>
+                          <th className="py-1.5 px-2">VL</th>
+                          <th className="py-1.5 px-2">VP</th>
+                          <th className="py-1.5 px-2">PH</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-200 font-mono">
+                        {[
+                          { key: 'od', label: 'Olho Direito (OD)' },
+                          { key: 'oe', label: 'Olho Esquerdo (OE)' },
+                          { key: 'ao', label: 'Ambos os Olhos (AO)' }
+                        ].map(row => (
+                          <tr key={row.key}>
+                            <td className="py-2 px-3 text-left font-bold font-sans border-r border-slate-200">{row.label}</td>
+                            {['semCorrecao', 'comCorrecao'].flatMap((group) => [
+                              <td key={`${group}-longe`} className="py-1 px-1"><input type="text" value={anamneseData.acuidade[group][row.key].longe} onChange={(event) => updateVisualAcuity(group, row.key, 'longe', event.target.value)} className="clinical-input h-8 text-center font-mono font-bold text-xs" /></td>,
+                              <td key={`${group}-perto`} className="py-1 px-1"><input type="text" value={anamneseData.acuidade[group][row.key].perto} onChange={(event) => updateVisualAcuity(group, row.key, 'perto', event.target.value)} className="clinical-input h-8 text-center font-mono font-bold text-xs" /></td>,
+                              <td key={`${group}-ph`} className={`py-1 px-1 ${group === 'semCorrecao' ? 'border-r border-slate-200' : ''}`}>
+                                {row.key === 'ao' ? <span className="text-slate-400">—</span> : <input type="text" value={anamneseData.acuidade[group][row.key].ph} onChange={(event) => updateVisualAcuity(group, row.key, 'ph', event.target.value)} className="clinical-input h-8 text-center font-mono font-bold text-xs" />}
+                              </td>,
+                            ])}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
                   <label className="block">
-                    <span className="block font-bold text-slate-700 mb-1">Tipo de Optotipo</span>
-                    <select
-                      value={anamneseData.acuidade.optotipo}
-                      onChange={(event) => setAnamneseData((current) => ({ ...current, acuidade: { ...current.acuidade, optotipo: event.target.value } }))}
-                      className="clinical-input h-8 text-xs font-medium"
-                    >
-                      <option value="">Selecione</option>
-                      <option value="Snellen">Snellen</option>
-                      <option value="Tumbling E">Tumbling E</option>
-                      <option value="Figuras">Figuras</option>
-                      <option value="LogMAR">LogMAR</option>
-                    </select>
-                  </label>
-                  <label className="block">
-                    <span className="block font-bold text-slate-700 mb-1">Visão habitual</span>
-                    <input
-                      type="text"
-                      value={anamneseData.acuidade.visaoHabitual}
-                      onChange={(event) => setAnamneseData((current) => ({ ...current, acuidade: { ...current.acuidade, visaoHabitual: event.target.value } }))}
-                      className="clinical-input h-8 text-xs font-medium"
+                    <span className="block font-bold text-slate-700 mb-1">Observações</span>
+                    <textarea
+                      rows={2}
+                      value={anamneseData.acuidade.observacoes}
+                      onChange={(event) => setAnamneseData((current) => ({ ...current, acuidade: { ...current.acuidade, observacoes: event.target.value } }))}
+                      className="clinical-input h-auto min-h-20 py-2 text-xs font-medium resize-y"
                     />
                   </label>
+                  <div className="flex justify-end">
+                    <button
+                      type="button"
+                      onClick={saveVisualAcuity}
+                      disabled={disabled || loadingVisualAcuity || savingVisualAcuity}
+                      className={saveButtonClass('acuidadeVisual')}
+                    >
+                      {savingVisualAcuity ? <Clock className="w-3.5 h-3.5 animate-spin" /> : savedSection === 'acuidadeVisual' ? <Check className="w-3.5 h-3.5" /> : <Save className="w-3.5 h-3.5" />}
+                      <span>{savingVisualAcuity ? 'Salvando...' : savedSection === 'acuidadeVisual' ? 'Salvo com sucesso' : 'Salvar Acuidade'}</span>
+                    </button>
+                  </div>
                 </div>
-
-                <div className="overflow-x-auto border border-slate-200/80 rounded-2xl shadow-hairline my-2"><table className="w-full min-w-[760px] text-center border-collapse text-xs">
-                    <thead>
-                      <tr className="bg-slate-100 border-b border-slate-200/80 font-extrabold text-[11px] text-slate-700 uppercase">
-                        <th rowSpan={2} className="py-2 px-3 text-left border-r border-slate-200/80">Olho</th>
-                        <th colSpan={3} className="py-2 px-3 border-r border-slate-200/80">Sem correção</th>
-                        <th colSpan={3} className="py-2 px-3">Com correção</th>
-                      </tr>
-                      <tr className="bg-slate-50 border-b border-slate-200/80 font-bold text-[10px] text-slate-600 uppercase">
-                        <th className="py-1.5 px-2">VL</th>
-                        <th className="py-1.5 px-2">VP</th>
-                        <th className="py-1.5 px-2 border-r border-slate-200/80">PH</th>
-                        <th className="py-1.5 px-2">VL</th>
-                        <th className="py-1.5 px-2">VP</th>
-                        <th className="py-1.5 px-2">PH</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-200 font-mono">
-                      {[
-                        { key: 'od', label: 'Olho Direito (OD)' },
-                        { key: 'oe', label: 'Olho Esquerdo (OE)' },
-                        { key: 'ao', label: 'Ambos os Olhos (AO)' }
-                      ].map(row => (
-                        <tr key={row.key}>
-                          <td className="py-2 px-3 text-left font-bold font-sans border-r border-slate-200">{row.label}</td>
-                          {['semCorrecao', 'comCorrecao'].flatMap((group) => [
-                            <td key={`${group}-longe`} className="py-1 px-1"><input type="text" value={anamneseData.acuidade[group][row.key].longe} onChange={(event) => updateVisualAcuity(group, row.key, 'longe', event.target.value)} className="clinical-input h-8 text-center font-mono font-bold text-xs" /></td>,
-                            <td key={`${group}-perto`} className="py-1 px-1"><input type="text" value={anamneseData.acuidade[group][row.key].perto} onChange={(event) => updateVisualAcuity(group, row.key, 'perto', event.target.value)} className="clinical-input h-8 text-center font-mono font-bold text-xs" /></td>,
-                            <td key={`${group}-ph`} className={`py-1 px-1 ${group === 'semCorrecao' ? 'border-r border-slate-200' : ''}`}>
-                              {row.key === 'ao' ? <span className="text-slate-400">—</span> : <input type="text" value={anamneseData.acuidade[group][row.key].ph} onChange={(event) => updateVisualAcuity(group, row.key, 'ph', event.target.value)} className="clinical-input h-8 text-center font-mono font-bold text-xs" />}
-                            </td>,
-                          ])}
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-                <label className="block">
-                  <span className="block font-bold text-slate-700 mb-1">Observações</span>
-                  <textarea
-                    rows={2}
-                    value={anamneseData.acuidade.observacoes}
-                    onChange={(event) => setAnamneseData((current) => ({ ...current, acuidade: { ...current.acuidade, observacoes: event.target.value } }))}
-                    className="clinical-input h-auto min-h-20 py-2 text-xs font-medium resize-y"
-                  />
-                </label>
-                <div className="flex justify-end">
-                  <button
-                    type="button"
-                    onClick={saveVisualAcuity}
-                    disabled={disabled || loadingVisualAcuity || savingVisualAcuity}
-                    className={saveButtonClass('acuidadeVisual')}
-                  >
-                    {savingVisualAcuity ? <Clock className="w-3.5 h-3.5 animate-spin" /> : savedSection === 'acuidadeVisual' ? <Check className="w-3.5 h-3.5" /> : <Save className="w-3.5 h-3.5" />}
-                    <span>{savingVisualAcuity ? 'Salvando...' : savedSection === 'acuidadeVisual' ? 'Salvo com sucesso' : 'Salvar Acuidade'}</span>
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
+              )}
+            </div>
+          )}
 
           {/* 4. BIOMICROSCOPIA */}
-          <div data-clinical-section="biomicroscopia" className="border border-slate-200/90 rounded-2xl bg-white shadow-hairline overflow-hidden transition-all">
-            <button
-              onClick={() => toggleSection('biomicroscopia')}
-              className="w-full p-3.5 flex items-center justify-between bg-slate-50 hover:bg-forest-50/50 text-left transition-colors font-extrabold text-xs uppercase text-slate-900"
-            >
-              <div className="flex items-center space-x-2">
-                {openSections['biomicroscopia'] ? <ChevronDown className="w-4 h-4 text-forest-700" /> : <ChevronRight className="w-4 h-4 text-slate-400" />}
-                <span>4. Biomicroscopia</span>
-              </div>
-              {openSections['biomicroscopia'] ? (
-                <span className="text-[10px] font-bold text-forest-800 bg-forest-50 px-2 py-0.5 rounded-md border border-forest-200/80 uppercase">
-                  Aberto
-                </span>
-              ) : (
-                <span className="text-[10px] font-bold text-slate-500 uppercase">
-                  Abrir
-                </span>
-              )}
-            </button>
+          {isSectionEnabled('biomicroscopia') && (
+            <div data-clinical-section="biomicroscopia" className="border border-slate-200/90 rounded-2xl bg-white shadow-hairline overflow-hidden transition-all">
+              <button
+                onClick={() => toggleSection('biomicroscopia')}
+                className="w-full p-3.5 flex items-center justify-between bg-slate-50 hover:bg-forest-50/50 text-left transition-colors font-extrabold text-xs uppercase text-slate-900"
+              >
+                <div className="flex items-center space-x-2">
+                  {openSections['biomicroscopia'] ? <ChevronDown className="w-4 h-4 text-forest-700" /> : <ChevronRight className="w-4 h-4 text-slate-400" />}
+                  <span>4. Biomicroscopia</span>
+                </div>
+                {openSections['biomicroscopia'] ? (
+                  <span className="text-[10px] font-bold text-forest-800 bg-forest-50 px-2 py-0.5 rounded-md border border-forest-200/80 uppercase">
+                    Aberto
+                  </span>
+                ) : (
+                  <span className="text-[10px] font-bold text-slate-500 uppercase">
+                    Abrir
+                  </span>
+                )}
+              </button>
 
-            {openSections['biomicroscopia'] && (
-              <div className="p-4 space-y-4 text-xs border-t border-slate-200 animate-fade-in">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {['od', 'oe'].map(eye => (
-                    <div key={eye} className="p-4 bg-slate-50/70 border border-slate-200/80 rounded-2xl space-y-3 shadow-hairline">
-                      <div className="flex items-center justify-between border-b border-slate-200/70 pb-2">
-                        <span className="font-extrabold uppercase text-forest-800 text-xs tracking-wider">
-                          {eye === 'od' ? 'Olho Direito (OD)' : 'Olho Esquerdo (OE)'}
-                        </span>
+              {openSections['biomicroscopia'] && (
+                <div className="p-4 space-y-4 text-xs border-t border-slate-200 animate-fade-in">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {['od', 'oe'].map(eye => (
+                      <div key={eye} className="p-4 bg-slate-50/70 border border-slate-200/80 rounded-2xl space-y-3 shadow-hairline">
+                        <div className="flex items-center justify-between border-b border-slate-200/70 pb-2">
+                          <span className="font-extrabold uppercase text-forest-800 text-xs tracking-wider">
+                            {eye === 'od' ? 'Olho Direito (OD)' : 'Olho Esquerdo (OE)'}
+                          </span>
+                        </div>
+                        <div className="grid grid-cols-2 gap-2.5">
+                          {BIOMICROSCOPY_FIELDS.map(([field, label]) => (
+                            <div key={field}>
+                              <label className="clinical-label !text-[9.5px] !mb-1">{label}</label>
+                              <input
+                                type="text"
+                                value={anamneseData.biomicroscopia[eye][field]}
+                                onChange={(event) => updateBiomicroscopy(eye, field, event.target.value)}
+                                disabled={disabled || loadingBiomicroscopy || savingBiomicroscopy}
+                                className="clinical-input h-8 text-xs font-medium"
+                              />
+                            </div>
+                          ))}
+                        </div>
                       </div>
-                      <div className="grid grid-cols-2 gap-2.5">
-                        {BIOMICROSCOPY_FIELDS.map(([field, label]) => (
-                          <div key={field}>
-                            <label className="clinical-label !text-[9.5px] !mb-1">{label}</label>
+                    ))}
+                  </div>
+                  <label className="block">
+                    <span className="block text-[10px] font-bold uppercase text-slate-600 mb-1">Observações</span>
+                    <textarea
+                      rows={3}
+                      value={anamneseData.biomicroscopia.observacoes}
+                      onChange={(event) => setAnamneseData((current) => ({
+                        ...current,
+                        biomicroscopia: { ...current.biomicroscopia, observacoes: event.target.value },
+                      }))}
+                      disabled={disabled || loadingBiomicroscopy || savingBiomicroscopy}
+                      className="clinical-input h-auto min-h-20 py-2 text-xs font-medium resize-y"
+                    />
+                  </label>
+                  <div className="flex justify-end">
+                    <button
+                      type="button"
+                      onClick={saveBiomicroscopy}
+                      disabled={disabled || loadingBiomicroscopy || savingBiomicroscopy}
+                      className={saveButtonClass('biomicroscopia')}
+                    >
+                      {savingBiomicroscopy ? <Clock className="w-3.5 h-3.5 animate-spin" /> : savedSection === 'biomicroscopia' ? <Check className="w-3.5 h-3.5" /> : <Save className="w-3.5 h-3.5" />}
+                      <span>{savingBiomicroscopy ? 'Salvando...' : savedSection === 'biomicroscopia' ? 'Salvo com sucesso' : 'Salvar Biomicroscopia'}</span>
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* 5. CERATOMETRIA */}
+          {isSectionEnabled('ceratometria') && (
+            <div data-clinical-section="ceratometria" className="border border-slate-200/90 rounded-2xl bg-white shadow-hairline overflow-hidden transition-all">
+              <button
+                onClick={() => toggleSection('ceratometria')}
+                className="w-full p-3.5 flex items-center justify-between bg-slate-50 hover:bg-forest-50/50 text-left transition-colors font-extrabold text-xs uppercase text-slate-900"
+              >
+                <div className="flex items-center space-x-2">
+                  {openSections['ceratometria'] ? <ChevronDown className="w-4 h-4 text-forest-700" /> : <ChevronRight className="w-4 h-4 text-slate-400" />}
+                  <span>5. Ceratometria</span>
+                </div>
+                {openSections['ceratometria'] ? (
+                  <span className="text-[10px] font-bold text-forest-800 bg-forest-50 px-2 py-0.5 rounded-md border border-forest-200/80 uppercase">
+                    Aberto
+                  </span>
+                ) : (
+                  <span className="text-[10px] font-bold text-slate-500 uppercase">
+                    Abrir
+                  </span>
+                )}
+              </button>
+
+              {openSections['ceratometria'] && (
+                <div className="p-5 space-y-4 text-xs border-t border-slate-200 animate-fade-in bg-white">
+                  <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+                    <label className="font-semibold text-slate-700 sm:w-28 shrink-0 text-xs">
+                      Técnica
+                    </label>
+                    <input
+                      type="text"
+                      value={anamneseData.ceratometria.tecnica}
+                      onChange={(event) => setAnamneseData((current) => ({
+                        ...current,
+                        ceratometria: { ...current.ceratometria, tecnica: event.target.value },
+                      }))}
+                      disabled={disabled || loadingKeratometry || savingKeratometry}
+                      className="clinical-input h-9 font-medium"
+                    />
+                  </div>
+
+                  <div className="overflow-x-auto pt-2 border-t border-slate-200">
+                    <table className="w-full text-left border-collapse text-xs">
+                      <thead>
+                        <tr className="border-b border-slate-200/80">
+                          <th className="py-2.5 px-3 w-40 font-bold text-slate-500"></th>
+                          <th className="py-2.5 px-3 text-center font-bold text-slate-700 uppercase tracking-wider text-xs">
+                            OD
+                          </th>
+                          <th className="py-2.5 px-3 text-center font-bold text-slate-700 uppercase tracking-wider text-xs">
+                            OE
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {[
+                          ['horizontal', 'Meridiano horizontal', 'text'],
+                          ['vertical', 'Meridiano vertical', 'text'],
+                          ['eixo', 'Eixo', 'number'],
+                        ].map(([field, label, type]) => (
+                          <tr key={field} className="hover:bg-slate-50/60">
+                            <td className="py-2.5 px-3 font-semibold text-slate-700 align-middle">{label}</td>
+                            {['od', 'oe'].map((eye) => (
+                              <td key={eye} className="py-1.5 px-3 w-1/2">
+                                <input
+                                  type={type}
+                                  min={type === 'number' ? 0 : undefined}
+                                  max={type === 'number' ? 180 : undefined}
+                                  step={type === 'number' ? 1 : undefined}
+                                  value={anamneseData.ceratometria[eye][field]}
+                                  onChange={(event) => updateKeratometryEye(eye, field, event.target.value)}
+                                  disabled={disabled || loadingKeratometry || savingKeratometry}
+                                  className="clinical-input text-center font-mono font-bold h-9"
+                                />
+                              </td>
+                            ))}
+                          </tr>
+                        ))}
+                        <tr className="hover:bg-slate-50/60">
+                          <td className="py-2.5 px-3 font-semibold text-slate-700 align-middle">
+                            Miras
+                          </td>
+                          <td colSpan={2} className="py-1.5 px-3">
                             <input
                               type="text"
-                              value={anamneseData.biomicroscopia[eye][field]}
-                              onChange={(event) => updateBiomicroscopy(eye, field, event.target.value)}
-                              disabled={disabled || loadingBiomicroscopy || savingBiomicroscopy}
-                              className="clinical-input h-8 text-xs font-medium"
+                              value={anamneseData.ceratometria.miras}
+                              onChange={(event) => setAnamneseData((current) => ({
+                                ...current,
+                                ceratometria: { ...current.ceratometria, miras: event.target.value },
+                              }))}
+                              disabled={disabled || loadingKeratometry || savingKeratometry}
+                              className="clinical-input h-9 font-medium"
                             />
-                          </div>
+                          </td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                  <label className="block">
+                    <span className="block text-[10px] font-bold uppercase text-slate-600 mb-1">Observações</span>
+                    <textarea
+                      rows={3}
+                      value={anamneseData.ceratometria.observacoes}
+                      onChange={(event) => setAnamneseData((current) => ({
+                        ...current,
+                        ceratometria: { ...current.ceratometria, observacoes: event.target.value },
+                      }))}
+                      disabled={disabled || loadingKeratometry || savingKeratometry}
+                      className="clinical-input h-auto min-h-20 py-2 text-xs font-medium resize-y"
+                    />
+                  </label>
+                  <div className="flex justify-end">
+                    <button
+                      type="button"
+                      onClick={saveKeratometry}
+                      disabled={disabled || loadingKeratometry || savingKeratometry}
+                      className={saveButtonClass('ceratometria')}
+                    >
+                      {savingKeratometry ? <Clock className="w-3.5 h-3.5 animate-spin" /> : savedSection === 'ceratometria' ? <Check className="w-3.5 h-3.5" /> : <Save className="w-3.5 h-3.5" />}
+                      <span>{savingKeratometry ? 'Salvando...' : savedSection === 'ceratometria' ? 'Salvo com sucesso' : 'Salvar Ceratometria'}</span>
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* 6. TONOMETRIA */}
+          {isSectionEnabled('tonometria') && (
+            <div data-clinical-section="tonometria" className="border border-slate-200/90 rounded-2xl bg-white shadow-hairline overflow-hidden transition-all">
+              <button
+                onClick={() => toggleSection('tonometria')}
+                className="w-full p-3.5 flex items-center justify-between bg-slate-50 hover:bg-forest-50/50 text-left transition-colors font-extrabold text-xs uppercase text-slate-900"
+              >
+                <div className="flex items-center space-x-2">
+                  {openSections['tonometria'] ? <ChevronDown className="w-4 h-4 text-forest-700" /> : <ChevronRight className="w-4 h-4 text-slate-400" />}
+                  <span>6. Tonometria</span>
+                </div>
+                {openSections['tonometria'] ? (
+                  <span className="text-[10px] font-bold text-forest-800 bg-forest-50 px-2 py-0.5 rounded-md border border-forest-200/80 uppercase">
+                    Aberto
+                  </span>
+                ) : (
+                  <span className="text-[10px] font-bold text-slate-500 uppercase">
+                    Abrir
+                  </span>
+                )}
+              </button>
+
+              {openSections['tonometria'] && (
+                <div className="p-5 space-y-4 text-xs border-t border-slate-200 animate-fade-in bg-white">
+                  <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+                    <label className="font-semibold text-slate-700 sm:w-28 shrink-0 text-xs">
+                      Técnica
+                    </label>
+                    <input
+                      type="text"
+                      value={anamneseData.tonometria.tecnica}
+                      onChange={(event) => setAnamneseData((current) => ({
+                        ...current,
+                        tonometria: { ...current.tonometria, tecnica: event.target.value },
+                      }))}
+                      disabled={disabled || loadingTonometry || savingTonometry}
+                      className="clinical-input h-9 font-medium"
+                    />
+                  </div>
+
+                  <div className="overflow-x-auto pt-2 border-t border-slate-200">
+                    <table className="w-full text-left border-collapse text-xs">
+                      <thead>
+                        <tr className="border-b border-slate-200/80">
+                          <th className="py-2.5 px-3 w-40 font-bold text-slate-500"></th>
+                          <th className="py-2.5 px-3 text-center font-bold text-slate-700 uppercase tracking-wider text-xs">
+                            OD
+                          </th>
+                          <th className="py-2.5 px-3 text-center font-bold text-slate-700 uppercase tracking-wider text-xs">
+                            OE
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        <tr className="hover:bg-slate-50/60">
+                          <td className="py-2.5 px-3 font-semibold text-slate-700 align-middle">
+                            Pressão Intraocular
+                          </td>
+                          <td className="py-1.5 px-3 w-1/2">
+                            <input
+                              type="number"
+                              min="0"
+                              step="0.1"
+                              value={anamneseData.tonometria.odMmhg}
+                              onChange={(event) => setAnamneseData((current) => ({
+                                ...current,
+                                tonometria: { ...current.tonometria, odMmhg: event.target.value },
+                              }))}
+                              disabled={disabled || loadingTonometry || savingTonometry}
+                              className="clinical-input text-center font-mono font-bold h-9"
+                              aria-label="Pressão intraocular OD em mmHg"
+                            />
+                          </td>
+                          <td className="py-1.5 px-3 w-1/2">
+                            <input
+                              type="number"
+                              min="0"
+                              step="0.1"
+                              value={anamneseData.tonometria.oeMmhg}
+                              onChange={(event) => setAnamneseData((current) => ({
+                                ...current,
+                                tonometria: { ...current.tonometria, oeMmhg: event.target.value },
+                              }))}
+                              disabled={disabled || loadingTonometry || savingTonometry}
+                              className="clinical-input text-center font-mono font-bold h-9"
+                              aria-label="Pressão intraocular OE em mmHg"
+                            />
+                          </td>
+                        </tr>
+                        <tr className="hover:bg-slate-50/60">
+                          <td className="py-2.5 px-3 font-semibold text-slate-700 align-middle">
+                            Hora da Medição
+                          </td>
+                          <td colSpan={2} className="py-1.5 px-3">
+                            <input
+                              type="time"
+                              value={anamneseData.tonometria.horario}
+                              onChange={(event) => setAnamneseData((current) => ({
+                                ...current,
+                                tonometria: { ...current.tonometria, horario: event.target.value },
+                              }))}
+                              disabled={disabled || loadingTonometry || savingTonometry}
+                              className="clinical-input text-center font-mono font-bold h-9"
+                            />
+                          </td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                  <label className="block">
+                    <span className="block text-[10px] font-bold uppercase text-slate-600 mb-1">Observações</span>
+                    <textarea
+                      rows={3}
+                      value={anamneseData.tonometria.observacoes}
+                      onChange={(event) => setAnamneseData((current) => ({
+                        ...current,
+                        tonometria: { ...current.tonometria, observacoes: event.target.value },
+                      }))}
+                      disabled={disabled || loadingTonometry || savingTonometry}
+                      className="clinical-input h-auto min-h-20 py-2 text-xs font-medium resize-y"
+                    />
+                  </label>
+                  <div className="flex justify-end">
+                    <button
+                      type="button"
+                      onClick={saveTonometry}
+                      disabled={disabled || loadingTonometry || savingTonometry}
+                      className={saveButtonClass('tonometria')}
+                    >
+                      {savingTonometry ? <Clock className="w-3.5 h-3.5 animate-spin" /> : savedSection === 'tonometria' ? <Check className="w-3.5 h-3.5" /> : <Save className="w-3.5 h-3.5" />}
+                      <span>{savingTonometry ? 'Salvando...' : savedSection === 'tonometria' ? 'Salvo com sucesso' : 'Salvar Tonometria'}</span>
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* 7. FOROMETRIA */}
+          {isSectionEnabled('forometria') && (
+            <div data-clinical-section="forometria" className="border border-slate-200/90 rounded-2xl bg-white shadow-hairline overflow-hidden transition-all">
+              <button
+                onClick={() => toggleSection('forometria')}
+                className="w-full p-3.5 flex items-center justify-between bg-slate-50 hover:bg-forest-50/50 text-left transition-colors font-extrabold text-xs uppercase text-slate-900"
+              >
+                <div className="flex items-center space-x-2">
+                  {openSections['forometria'] ? <ChevronDown className="w-4 h-4 text-forest-700" /> : <ChevronRight className="w-4 h-4 text-slate-400" />}
+                  <span>7. Forometria</span>
+                </div>
+                {openSections['forometria'] ? (
+                  <span className="text-[10px] font-bold text-forest-800 bg-forest-50 px-2 py-0.5 rounded-md border border-forest-200/80 uppercase">
+                    Aberto
+                  </span>
+                ) : (
+                  <span className="text-[10px] font-bold text-slate-500 uppercase">
+                    Abrir
+                  </span>
+                )}
+              </button>
+
+              {openSections['forometria'] && (
+                <div className="p-5 space-y-4 text-xs border-t border-slate-200 animate-fade-in bg-white">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                    {FOROMETRY_FIELDS.map(([field, label]) => (
+                      <label key={field} className="block">
+                        <span className="block text-[10px] font-bold uppercase text-slate-600 mb-1">{label}</span>
+                        <input
+                          type="text"
+                          value={anamneseData.forometria[field]}
+                          onChange={(event) => updateClinicalSectionField('forometria', field, event.target.value)}
+                          disabled={disabled || loadingForometry || savingForometry}
+                          className="clinical-input h-9 font-medium"
+                        />
+                      </label>
+                    ))}
+                  </div>
+                  <label className="block">
+                    <span className="block text-[10px] font-bold uppercase text-slate-600 mb-1">Observações</span>
+                    <textarea rows={3} value={anamneseData.forometria.observacoes} onChange={(event) => updateClinicalSectionField('forometria', 'observacoes', event.target.value)} disabled={disabled || loadingForometry || savingForometry} className="clinical-input h-auto min-h-20 py-2 text-xs font-medium resize-y" />
+                  </label>
+                  <div className="flex justify-end">
+                    <button type="button" onClick={saveForometry} disabled={disabled || loadingForometry || savingForometry} className={saveButtonClass('forometria')}>
+                      {savingForometry ? <Clock className="w-3.5 h-3.5 animate-spin" /> : savedSection === 'forometria' ? <Check className="w-3.5 h-3.5" /> : <Save className="w-3.5 h-3.5" />}
+                      <span>{savingForometry ? 'Salvando...' : savedSection === 'forometria' ? 'Salvo com sucesso' : 'Salvar Forometria'}</span>
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* 8. OFTALMOSCOPIA */}
+          {isSectionEnabled('oftalmoscopia') && (
+            <div data-clinical-section="oftalmoscopia" className="border border-slate-200/90 rounded-2xl bg-white shadow-hairline overflow-hidden transition-all">
+              <button
+                onClick={() => toggleSection('oftalmoscopia')}
+                className="w-full p-3.5 flex items-center justify-between bg-slate-50 hover:bg-forest-50/50 text-left transition-colors font-extrabold text-xs uppercase text-slate-900"
+              >
+                <div className="flex items-center space-x-2">
+                  {openSections['oftalmoscopia'] ? <ChevronDown className="w-4 h-4 text-forest-700" /> : <ChevronRight className="w-4 h-4 text-slate-400" />}
+                  <span>8. Oftalmoscopia</span>
+                </div>
+                {openSections['oftalmoscopia'] ? (
+                  <span className="text-[10px] font-bold text-forest-800 bg-forest-50 px-2 py-0.5 rounded-md border border-forest-200/80 uppercase">
+                    Aberto
+                  </span>
+                ) : (
+                  <span className="text-[10px] font-bold text-slate-500 uppercase">
+                    Abrir
+                  </span>
+                )}
+              </button>
+
+              {openSections['oftalmoscopia'] && (
+                <div className="p-5 space-y-4 text-xs border-t border-slate-200 animate-fade-in bg-white">
+                  <label className="flex flex-col sm:flex-row sm:items-center gap-3">
+                    <span className="font-semibold text-slate-700 sm:w-28 shrink-0">Técnica</span>
+                    <input type="text" value={anamneseData.oftalmoscopia.tecnica} onChange={(event) => updateClinicalSectionField('oftalmoscopia', 'tecnica', event.target.value)} disabled={disabled || loadingOphthalmoscopy || savingOphthalmoscopy} className="clinical-input h-9 font-medium" />
+                  </label>
+                  <div className="overflow-x-auto pt-1">
+                    <table className="w-full text-left border-collapse text-xs">
+                      <thead>
+                        <tr className="border-b border-slate-200/80">
+                          <th className="py-2.5 px-3 w-40 font-bold text-slate-500"></th>
+                          <th className="py-2.5 px-3 text-center font-bold text-slate-700 uppercase tracking-wider text-xs">
+                            OD
+                          </th>
+                          <th className="py-2.5 px-3 text-center font-bold text-slate-700 uppercase tracking-wider text-xs">
+                            OE
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {OPHTHALMOSCOPY_FIELDS.map(([field, label]) => (
+                          <tr key={field} className="hover:bg-slate-50/60">
+                            <td className="py-2 px-3 font-semibold text-slate-700 align-middle">{label}</td>
+                            {['od', 'oe'].map((eye) => (
+                              <td key={eye} className="py-1.5 px-3 w-1/2">
+                                <input type="text" value={anamneseData.oftalmoscopia[eye][field]} onChange={(event) => updateClinicalEyeField('oftalmoscopia', eye, field, event.target.value)} disabled={disabled || loadingOphthalmoscopy || savingOphthalmoscopy} className="clinical-input h-9 font-medium" />
+                              </td>
+                            ))}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  <label className="block">
+                    <span className="block text-[10px] font-bold uppercase text-slate-600 mb-1">Observações</span>
+                    <textarea rows={3} value={anamneseData.oftalmoscopia.observacoes} onChange={(event) => updateClinicalSectionField('oftalmoscopia', 'observacoes', event.target.value)} disabled={disabled || loadingOphthalmoscopy || savingOphthalmoscopy} className="clinical-input h-auto min-h-20 py-2 text-xs font-medium resize-y" />
+                  </label>
+                  <div className="flex justify-end">
+                    <button type="button" onClick={saveOphthalmoscopy} disabled={disabled || loadingOphthalmoscopy || savingOphthalmoscopy} className={saveButtonClass('oftalmoscopia')}>
+                      {savingOphthalmoscopy ? <Clock className="w-3.5 h-3.5 animate-spin" /> : savedSection === 'oftalmoscopia' ? <Check className="w-3.5 h-3.5" /> : <Save className="w-3.5 h-3.5" />}
+                      <span>{savingOphthalmoscopy ? 'Salvando...' : savedSection === 'oftalmoscopia' ? 'Salvo com sucesso' : 'Salvar Oftalmoscopia'}</span>
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* 9. RETINOSCOPIA DINÂMICA (Fiel à Imagem 1) */}
+          {isSectionEnabled('retinoscopiaDinamica') && (
+            <div data-clinical-section="retinoscopiaDinamica" className="border border-slate-200/90 rounded-2xl bg-white shadow-hairline overflow-hidden transition-all">
+              <button
+                onClick={() => toggleSection('retinoscopiaDinamica')}
+                className="w-full p-3.5 flex items-center justify-between bg-slate-50 hover:bg-forest-50/50 text-left transition-colors font-extrabold text-xs uppercase text-slate-900"
+              >
+                <div className="flex items-center space-x-2">
+                  {openSections['retinoscopiaDinamica'] ? <ChevronDown className="w-4 h-4 text-forest-700" /> : <ChevronRight className="w-4 h-4 text-slate-400" />}
+                  <span>9. Retinoscopia Dinâmica</span>
+                </div>
+                {openSections['retinoscopiaDinamica'] ? (
+                  <span className="text-[10px] font-bold text-forest-800 bg-forest-50 px-2 py-0.5 rounded-md border border-forest-200/80 uppercase">
+                    Aberto
+                  </span>
+                ) : (
+                  <span className="text-[10px] font-bold text-slate-500 uppercase">
+                    Abrir
+                  </span>
+                )}
+              </button>
+
+              {openSections['retinoscopiaDinamica'] && (
+                <div className="p-5 space-y-3 text-xs border-t border-slate-200 animate-fade-in bg-white">
+                  <div className="overflow-x-auto border border-slate-200/80 rounded-2xl shadow-hairline my-2"><table className="w-full min-w-[680px] text-left border-collapse">
+                      <thead><tr className="border-b border-slate-200/80"><th className="py-2 px-3">Olho</th>{REFRACTION_FIELDS.map(([field, label]) => <th key={field} className="py-2 px-3 text-center uppercase text-[10px]">{label}</th>)}</tr></thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {['od', 'oe'].map((eye) => <tr key={eye}><td className="py-2 px-3 font-bold uppercase">{eye}</td>{REFRACTION_FIELDS.map(([field, , type]) => <td key={field} className="py-1.5 px-2"><input type={type} min={type === 'number' ? 0 : undefined} max={type === 'number' ? 180 : undefined} step={type === 'number' ? 1 : undefined} value={anamneseData.retinoscopiaDinamica[eye][field]} onChange={(event) => updateClinicalEyeField('retinoscopiaDinamica', eye, field, event.target.value)} disabled={disabled || loadingDynamicRetinoscopy || savingDynamicRetinoscopy} className="clinical-input text-center font-mono font-bold h-9" /></td>)}</tr>)}
+                      </tbody>
+                    </table>
+                  </div>
+                  <textarea rows={3} aria-label="Observações da Retinoscopia Dinâmica" value={anamneseData.retinoscopiaDinamica.observacoes} onChange={(event) => updateClinicalSectionField('retinoscopiaDinamica', 'observacoes', event.target.value)} disabled={disabled || loadingDynamicRetinoscopy || savingDynamicRetinoscopy} className="clinical-input h-auto min-h-20 py-2 text-xs font-medium resize-y" placeholder="Observações" />
+                  <div className="flex justify-end"><button type="button" onClick={saveDynamicRetinoscopy} disabled={disabled || loadingDynamicRetinoscopy || savingDynamicRetinoscopy} className={saveButtonClass('retinoscopiaDinamica')}>{savingDynamicRetinoscopy ? <Clock className="w-3.5 h-3.5 animate-spin" /> : savedSection === 'retinoscopiaDinamica' ? <Check className="w-3.5 h-3.5" /> : <Save className="w-3.5 h-3.5" />}<span>{savingDynamicRetinoscopy ? 'Salvando...' : savedSection === 'retinoscopiaDinamica' ? 'Salvo com sucesso' : 'Salvar Retinoscopia Dinâmica'}</span></button></div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* 10. RETINOSCOPIA ESTÁTICA (Fiel à Imagem 1) */}
+          {isSectionEnabled('retinoscopiaEstatica') && (
+            <div data-clinical-section="retinoscopiaEstatica" className="border border-slate-200/90 rounded-2xl bg-white shadow-hairline overflow-hidden transition-all">
+              <button
+                onClick={() => toggleSection('retinoscopiaEstatica')}
+                className="w-full p-3.5 flex items-center justify-between bg-slate-50 hover:bg-forest-50/50 text-left transition-colors font-extrabold text-xs uppercase text-slate-900"
+              >
+                <div className="flex items-center space-x-2">
+                  {openSections['retinoscopiaEstatica'] ? <ChevronDown className="w-4 h-4 text-forest-700" /> : <ChevronRight className="w-4 h-4 text-slate-400" />}
+                  <span>10. Retinoscopia Estática</span>
+                </div>
+                {openSections['retinoscopiaEstatica'] ? (
+                  <span className="text-[10px] font-bold text-forest-800 bg-forest-50 px-2 py-0.5 rounded-md border border-forest-200/80 uppercase">
+                    Aberto
+                  </span>
+                ) : (
+                  <span className="text-[10px] font-bold text-slate-500 uppercase">
+                    Abrir
+                  </span>
+                )}
+              </button>
+
+              {openSections['retinoscopiaEstatica'] && (
+                <div className="p-5 space-y-3 text-xs border-t border-slate-200 animate-fade-in bg-white">
+                  <div className="overflow-x-auto border border-slate-200/80 rounded-2xl shadow-hairline my-2"><table className="w-full min-w-[680px] text-left border-collapse">
+                      <thead><tr className="border-b border-slate-200/80"><th className="py-2 px-3">Olho</th>{REFRACTION_FIELDS.map(([field, label]) => <th key={field} className="py-2 px-3 text-center uppercase text-[10px]">{label}</th>)}</tr></thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {['od', 'oe'].map((eye) => <tr key={eye}><td className="py-2 px-3 font-bold uppercase">{eye}</td>{REFRACTION_FIELDS.map(([field, , type]) => <td key={field} className="py-1.5 px-2"><input type={type} min={type === 'number' ? 0 : undefined} max={type === 'number' ? 180 : undefined} step={type === 'number' ? 1 : undefined} value={anamneseData.retinoscopiaEstatica[eye][field]} onChange={(event) => updateClinicalEyeField('retinoscopiaEstatica', eye, field, event.target.value)} disabled={disabled || loadingStaticRetinoscopy || savingStaticRetinoscopy} className="clinical-input text-center font-mono font-bold h-9" /></td>)}</tr>)}
+                      </tbody>
+                    </table>
+                  </div>
+                  <textarea rows={3} aria-label="Observações da Retinoscopia Estática" value={anamneseData.retinoscopiaEstatica.observacoes} onChange={(event) => updateClinicalSectionField('retinoscopiaEstatica', 'observacoes', event.target.value)} disabled={disabled || loadingStaticRetinoscopy || savingStaticRetinoscopy} className="clinical-input h-auto min-h-20 py-2 text-xs font-medium resize-y" placeholder="Observações" />
+                  <div className="flex justify-end"><button type="button" onClick={saveStaticRetinoscopy} disabled={disabled || loadingStaticRetinoscopy || savingStaticRetinoscopy} className={saveButtonClass('retinoscopiaEstatica')}>{savingStaticRetinoscopy ? <Clock className="w-3.5 h-3.5 animate-spin" /> : savedSection === 'retinoscopiaEstatica' ? <Check className="w-3.5 h-3.5" /> : <Save className="w-3.5 h-3.5" />}<span>{savingStaticRetinoscopy ? 'Salvando...' : savedSection === 'retinoscopiaEstatica' ? 'Salvo com sucesso' : 'Salvar Retinoscopia Estática'}</span></button></div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* 11. AVALIAÇÃO MOTORA (Fiel à Imagem 2) */}
+          {isSectionEnabled('avaliacaoMotora') && (
+            <div data-clinical-section="avaliacaoMotora" className="border border-slate-200/90 rounded-2xl bg-white shadow-hairline overflow-hidden transition-all">
+              <button
+                onClick={() => toggleSection('avaliacaoMotora')}
+                className="w-full p-3.5 flex items-center justify-between bg-slate-50 hover:bg-forest-50/50 text-left transition-colors font-extrabold text-xs uppercase text-slate-900"
+              >
+                <div className="flex items-center space-x-2">
+                  {openSections['avaliacaoMotora'] ? <ChevronDown className="w-4 h-4 text-forest-700" /> : <ChevronRight className="w-4 h-4 text-slate-400" />}
+                  <span>11. Avaliação Motora</span>
+                </div>
+                {openSections['avaliacaoMotora'] ? (
+                  <span className="text-[10px] font-bold text-forest-800 bg-forest-50 px-2 py-0.5 rounded-md border border-forest-200/80 uppercase">
+                    Aberto
+                  </span>
+                ) : (
+                  <span className="text-[10px] font-bold text-slate-500 uppercase">
+                    Abrir
+                  </span>
+                )}
+              </button>
+
+              {openSections['avaliacaoMotora'] && (
+                <div className="p-5 space-y-4 text-xs border-t border-slate-200 animate-fade-in bg-white">
+                  <div className="overflow-x-auto border border-slate-200/80 rounded-2xl shadow-hairline my-2"><table className="w-full text-left border-collapse text-xs">
+                      <thead><tr className="border-b border-slate-200/80"><th className="py-2.5 px-3 w-40"></th><th className="py-2.5 px-3 text-center uppercase">OD</th><th className="py-2.5 px-3 text-center uppercase">OE</th></tr></thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {[['kappa', 'Kappa'], ['hirschberg', 'Hirschberg'], ['duccoes', 'Ducções']].map(([field, label]) => <tr key={field}><td className="py-2.5 px-3 font-semibold">{label}</td>{['od', 'oe'].map((eye) => <td key={eye} className="py-1.5 px-3"><input type="text" value={anamneseData.avaliacaoMotora[field][eye]} onChange={(event) => updateMotorField(field, eye, event.target.value)} disabled={disabled || loadingMotorEvaluation || savingMotorEvaluation} className="clinical-input h-9 font-medium" /></td>)}</tr>)}
+                        <tr className="hover:bg-slate-50/60">
+                          <td className="py-2.5 px-3 font-semibold text-slate-700 align-middle">Versões</td>
+                          <td className="py-3 px-3 w-1/2 text-center">
+                            <VersoesHDiagram eye="OD" values={anamneseData.avaliacaoMotora.versoes.od} onChange={(pos, val) => updateMotorVersion('od', pos, val)} disabled={disabled || loadingMotorEvaluation || savingMotorEvaluation} />
+                          </td>
+                          <td className="py-3 px-3 w-1/2 text-center">
+                            <VersoesHDiagram eye="OE" values={anamneseData.avaliacaoMotora.versoes.oe} onChange={(pos, val) => updateMotorVersion('oe', pos, val)} disabled={disabled || loadingMotorEvaluation || savingMotorEvaluation} />
+                          </td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                  <textarea rows={3} aria-label="Observações da Avaliação Motora" value={anamneseData.avaliacaoMotora.observacoes} onChange={(event) => updateClinicalSectionField('avaliacaoMotora', 'observacoes', event.target.value)} disabled={disabled || loadingMotorEvaluation || savingMotorEvaluation} className="clinical-input h-auto min-h-20 py-2 text-xs font-medium resize-y" placeholder="Observações" />
+                  <div className="flex justify-end"><button type="button" onClick={saveMotorEvaluation} disabled={disabled || loadingMotorEvaluation || savingMotorEvaluation} className={saveButtonClass('avaliacaoMotora')}>{savingMotorEvaluation ? <Clock className="w-3.5 h-3.5 animate-spin" /> : savedSection === 'avaliacaoMotora' ? <Check className="w-3.5 h-3.5" /> : <Save className="w-3.5 h-3.5" />}<span>{savingMotorEvaluation ? 'Salvando...' : savedSection === 'avaliacaoMotora' ? 'Salvo com sucesso' : 'Salvar Avaliação Motora'}</span></button></div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* 12. RX FINAL */}
+          {isSectionEnabled('rxFinal') && (
+            <div data-clinical-section="rxFinal" className="border border-slate-200/90 rounded-2xl bg-white shadow-hairline overflow-hidden transition-all">
+              <button
+                onClick={() => toggleSection('rxFinal')}
+                className="w-full p-3.5 flex items-center justify-between bg-slate-50 hover:bg-forest-50/50 text-left transition-colors font-extrabold text-xs uppercase text-slate-900"
+              >
+                <div className="flex items-center space-x-2">
+                  {openSections['rxFinal'] ? <ChevronDown className="w-4 h-4 text-forest-700" /> : <ChevronRight className="w-4 h-4 text-slate-400" />}
+                  <span>12. RX Final</span>
+                </div>
+                {openSections['rxFinal'] ? (
+                  <span className="text-[10px] font-bold text-forest-800 bg-forest-50 px-2 py-0.5 rounded-md border border-forest-200/80 uppercase">
+                    Aberto
+                  </span>
+                ) : (
+                  <span className="text-[10px] font-bold text-slate-500 uppercase">
+                    Abrir
+                  </span>
+                )}
+              </button>
+
+              {openSections['rxFinal'] && (
+                <div className="p-4 space-y-3 text-xs border-t border-slate-200 animate-fade-in">
+                  <div className="overflow-x-auto border border-slate-200/80 rounded-2xl shadow-hairline my-2"><table className="w-full min-w-[900px] text-center border-collapse text-xs">
+                      <thead><tr className="bg-slate-100 border-b border-slate-200/80 font-extrabold text-[11px] text-slate-700 uppercase"><th className="py-2 px-3 text-left">Olho</th>{RX_FINAL_EYE_FIELDS.map(([field, label]) => <th key={field} className="py-2 px-3">{label}</th>)}</tr></thead>
+                      <tbody className="divide-y divide-slate-200 font-mono">
+                        {['od', 'oe'].map((eye) => <tr key={eye}><td className="py-2 px-3 text-left font-bold font-sans uppercase">{eye}</td>{RX_FINAL_EYE_FIELDS.map(([field, , type]) => <td key={field} className="py-1 px-1"><input type={type} min={field === 'eixo' ? 0 : undefined} max={field === 'eixo' ? 180 : undefined} value={anamneseData.rxFinal[eye][field]} onChange={(event) => updateClinicalEyeField('rxFinal', eye, field, event.target.value)} disabled={disabled || loadingFinalRx || savingFinalRx} className="clinical-input h-8 text-center font-mono font-bold text-xs" /></td>)}</tr>)}
+                      </tbody>
+                    </table>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">{[['adicao', 'Adição'], ['tipoLente', 'Tipo de lente'], ['filtro', 'Filtro'], ['cor', 'Cor'], ['tratamento', 'Tratamento']].map(([field, label]) => <label key={field}><span className="block text-[10px] font-bold uppercase text-slate-600 mb-1">{label}</span><input type="text" value={anamneseData.rxFinal[field]} onChange={(event) => updateClinicalSectionField('rxFinal', field, event.target.value)} disabled={disabled || loadingFinalRx || savingFinalRx} className="clinical-input h-9 font-medium" /></label>)}</div>
+                  <textarea rows={3} aria-label="Observações do RX Final" value={anamneseData.rxFinal.observacoes} onChange={(event) => updateClinicalSectionField('rxFinal', 'observacoes', event.target.value)} disabled={disabled || loadingFinalRx || savingFinalRx} className="clinical-input h-auto min-h-20 py-2 text-xs font-medium resize-y" placeholder="Observações" />
+                  <div className="flex justify-end"><button type="button" onClick={saveFinalRx} disabled={disabled || loadingFinalRx || savingFinalRx} className={saveButtonClass('rxFinal')}>{savingFinalRx ? <Clock className="w-3.5 h-3.5 animate-spin" /> : savedSection === 'rxFinal' ? <Check className="w-3.5 h-3.5" /> : <Save className="w-3.5 h-3.5" />}<span>{savingFinalRx ? 'Salvando...' : savedSection === 'rxFinal' ? 'Salvo com sucesso' : 'Salvar RX Final'}</span></button></div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* 13. AMPLITUDE DE ACOMODAÇÃO (Fiel à Imagem 3) */}
+          {isSectionEnabled('amplitudeAcomodacao') && (
+            <div data-clinical-section="amplitudeAcomodacao" className="border border-slate-200/90 rounded-2xl bg-white shadow-hairline overflow-hidden transition-all">
+              <button
+                onClick={() => toggleSection('amplitudeAcomodacao')}
+                className="w-full p-3.5 flex items-center justify-between bg-slate-50 hover:bg-forest-50/50 text-left transition-colors font-extrabold text-xs uppercase text-slate-900"
+              >
+                <div className="flex items-center space-x-2">
+                  {openSections['amplitudeAcomodacao'] ? <ChevronDown className="w-4 h-4 text-forest-700" /> : <ChevronRight className="w-4 h-4 text-slate-400" />}
+                  <span>13. Amplitude de Acomodação</span>
+                </div>
+                {openSections['amplitudeAcomodacao'] ? (
+                  <span className="text-[10px] font-bold text-forest-800 bg-forest-50 px-2 py-0.5 rounded-md border border-forest-200/80 uppercase">
+                    Aberto
+                  </span>
+                ) : (
+                  <span className="text-[10px] font-bold text-slate-500 uppercase">
+                    Abrir
+                  </span>
+                )}
+              </button>
+
+              {openSections['amplitudeAcomodacao'] && (
+                <div className="p-5 space-y-4 text-xs border-t border-slate-200 animate-fade-in bg-white">
+                  <label className="flex flex-col sm:flex-row sm:items-center gap-3">
+                    <span className="font-semibold text-slate-700 sm:w-28 shrink-0">Técnica</span>
+                    <input type="text" value={anamneseData.amplitudeAcomodacao.metodo} onChange={(event) => updateClinicalSectionField('amplitudeAcomodacao', 'metodo', event.target.value)} disabled={disabled || loadingAccommodationAmplitude || savingAccommodationAmplitude} className="clinical-input h-9 font-medium" />
+                  </label>
+                  <div className="divide-y divide-slate-200 border-b border-slate-200">
+                    {['od', 'oe'].map((eye) => (
+                      <div key={eye} className="grid grid-cols-1 sm:grid-cols-[72px_minmax(0,1fr)_120px_minmax(0,1fr)] items-center gap-3 py-2">
+                        <label htmlFor={`amplitude-${eye}`} className="px-2 font-medium text-slate-600 uppercase">{eye}</label>
+                        <input id={`amplitude-${eye}`} type="text" value={anamneseData.amplitudeAcomodacao[eye].amplitude} onChange={(event) => updateClinicalEyeField('amplitudeAcomodacao', eye, 'amplitude', event.target.value)} disabled={disabled || loadingAccommodationAmplitude || savingAccommodationAmplitude} className="clinical-input h-9 font-medium" />
+                        <label htmlFor={`nivel-${eye}`} className="px-1 font-medium text-slate-600">Nível</label>
+                        <input id={`nivel-${eye}`} type="text" value={anamneseData.amplitudeAcomodacao[eye].nivel} onChange={(event) => updateClinicalEyeField('amplitudeAcomodacao', eye, 'nivel', event.target.value)} disabled={disabled || loadingAccommodationAmplitude || savingAccommodationAmplitude} className="clinical-input h-9 font-medium" />
+                      </div>
+                    ))}
+                  </div>
+                  <div className="flex justify-end"><button type="button" onClick={saveAccommodationAmplitude} disabled={disabled || loadingAccommodationAmplitude || savingAccommodationAmplitude} className={saveButtonClass('amplitudeAcomodacao')}>{savingAccommodationAmplitude ? <Clock className="w-3.5 h-3.5 animate-spin" /> : savedSection === 'amplitudeAcomodacao' ? <Check className="w-3.5 h-3.5" /> : <Save className="w-3.5 h-3.5" />}<span>{savingAccommodationAmplitude ? 'Salvando...' : savedSection === 'amplitudeAcomodacao' ? 'Salvo com sucesso' : 'Salvar Amplitude'}</span></button></div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* 14. AFINAMENTO */}
+          {isSectionEnabled('afinamento') && (
+            <div data-clinical-section="afinamento" className="border border-slate-200/90 rounded-2xl bg-white shadow-hairline overflow-hidden transition-all">
+              <button
+                onClick={() => toggleSection('afinamento')}
+                className="w-full p-3.5 flex items-center justify-between bg-slate-50 hover:bg-forest-50/50 text-left transition-colors font-extrabold text-xs uppercase text-slate-900"
+              >
+                <div className="flex items-center space-x-2">
+                  {openSections['afinamento'] ? <ChevronDown className="w-4 h-4 text-forest-700" /> : <ChevronRight className="w-4 h-4 text-slate-400" />}
+                  <span>14. Afinamento</span>
+                </div>
+                {openSections['afinamento'] ? (
+                  <span className="text-[10px] font-bold text-forest-800 bg-forest-50 px-2 py-0.5 rounded-md border border-forest-200/80 uppercase">
+                    Aberto
+                  </span>
+                ) : (
+                  <span className="text-[10px] font-bold text-slate-500 uppercase">
+                    Abrir
+                  </span>
+                )}
+              </button>
+
+              {openSections['afinamento'] && (
+                <div className="p-5 space-y-3 text-xs border-t border-slate-200 animate-fade-in bg-white">
+                  <div className="overflow-x-auto border border-slate-200/80 rounded-2xl shadow-hairline my-2"><table className="w-full min-w-[760px] text-left border-collapse"><thead><tr className="border-b border-slate-200/80"><th className="py-2 px-3">Olho</th>{REFRACTION_NEAR_FIELDS.map(([field, label]) => <th key={field} className="py-2 px-3 text-center uppercase text-[10px]">{label}</th>)}</tr></thead><tbody className="divide-y divide-slate-100">{['od', 'oe'].map((eye) => <tr key={eye}><td className="py-2 px-3 font-bold uppercase">{eye}</td>{REFRACTION_NEAR_FIELDS.map(([field, , type]) => <td key={field} className="py-1.5 px-2"><input type={type} min={field === 'eixo' ? 0 : undefined} max={field === 'eixo' ? 180 : undefined} value={anamneseData.afinamento[eye][field]} onChange={(event) => updateClinicalEyeField('afinamento', eye, field, event.target.value)} disabled={disabled || loadingRefinement || savingRefinement} className="clinical-input text-center font-mono font-bold" /></td>)}</tr>)}</tbody></table></div>
+                  <label className="block max-w-sm"><span className="block text-[10px] font-bold uppercase text-slate-600 mb-1">Adição</span><input type="text" value={anamneseData.afinamento.adicao} onChange={(event) => updateClinicalSectionField('afinamento', 'adicao', event.target.value)} disabled={disabled || loadingRefinement || savingRefinement} className="clinical-input h-9 font-medium" /></label>
+                  <textarea rows={3} aria-label="Observações do Afinamento" value={anamneseData.afinamento.observacoes} onChange={(event) => updateClinicalSectionField('afinamento', 'observacoes', event.target.value)} disabled={disabled || loadingRefinement || savingRefinement} className="clinical-input h-auto min-h-20 py-2 text-xs font-medium resize-y" placeholder="Observações" />
+                  <div className="flex justify-end"><button type="button" onClick={saveRefinement} disabled={disabled || loadingRefinement || savingRefinement} className={saveButtonClass('afinamento')}>{savingRefinement ? <Clock className="w-3.5 h-3.5 animate-spin" /> : savedSection === 'afinamento' ? <Check className="w-3.5 h-3.5" /> : <Save className="w-3.5 h-3.5" />}<span>{savingRefinement ? 'Salvando...' : savedSection === 'afinamento' ? 'Salvo com sucesso' : 'Salvar Afinamento'}</span></button></div>
+                </div>
+              )}
+            </div>
+          )}
+          {/* 15. DX (DIAGNÓSTICO E CONDUTA) */}
+          {isSectionEnabled('dx') && (
+            <div data-clinical-section="dx" className="border border-slate-200/90 rounded-2xl bg-white shadow-hairline overflow-hidden transition-all">
+              <button
+                onClick={() => toggleSection('dx')}
+                className="w-full p-3.5 flex items-center justify-between bg-slate-50 hover:bg-forest-50/50 text-left transition-colors font-extrabold text-xs uppercase text-slate-900"
+              >
+                <div className="flex items-center space-x-2">
+                  {openSections['dx'] ? <ChevronDown className="w-4 h-4 text-forest-700" /> : <ChevronRight className="w-4 h-4 text-slate-400" />}
+                  <span>15. DX (Diagnóstico e Conduta)</span>
+                </div>
+                {openSections['dx'] ? (
+                  <span className="text-[10px] font-bold text-forest-800 bg-forest-50 px-2 py-0.5 rounded-md border border-forest-200/80 uppercase">
+                    Aberto
+                  </span>
+                ) : (
+                  <span className="text-[10px] font-bold text-slate-500 uppercase">
+                    Abrir
+                  </span>
+                )}
+              </button>
+
+              {openSections['dx'] && (
+                <div className="p-5 sm:p-6 space-y-4 text-xs animate-fade-in bg-white">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
+                    <div>
+                      <label className="clinical-label">Refrativo</label>
+                      <input type="text" value={anamneseData.dx.refrativo} onChange={(event) => updateClinicalSectionField('dx', 'refrativo', event.target.value)} className="clinical-input font-medium" />
+                    </div>
+                    <div>
+                      <label className="clinical-label">Motor</label>
+                      <input type="text" value={anamneseData.dx.motor} onChange={(event) => updateClinicalSectionField('dx', 'motor', event.target.value)} className="clinical-input font-medium" />
+                    </div>
+                    <div>
+                      <label className="clinical-label">Ocular</label>
+                      <input type="text" value={anamneseData.dx.patologico} onChange={(event) => updateClinicalSectionField('dx', 'patologico', event.target.value)} className="clinical-input font-medium" />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="p-4 bg-slate-50/70 border border-slate-200/80 rounded-2xl space-y-2.5 shadow-hairline">
+                      <span className="clinical-label">Conduta</span>
+                      <div className="flex flex-wrap gap-2 pt-0.5">
+                        {["LC", "RX", "Encaminhamento", "Pleóptica", "Ortóptica"].map(c => (
+                          <label key={c} className="flex items-center space-x-1.5 cursor-pointer bg-white px-3 py-1.5 rounded-xl border border-slate-200/80 text-xs font-semibold text-slate-800 hover:bg-forest-50/60 hover:border-forest-200 transition-all shadow-hairline">
+                            <input type="checkbox" checked={anamneseData.dx.conduta.includes(c)} onChange={() => toggleDxOption('conduta', c)} className="accent-forest-700" />
+                            <span>{c}</span>
+                          </label>
                         ))}
                       </div>
                     </div>
-                  ))}
-                </div>
-                <label className="block">
-                  <span className="block text-[10px] font-bold uppercase text-slate-600 mb-1">Observações</span>
-                  <textarea
-                    rows={3}
-                    value={anamneseData.biomicroscopia.observacoes}
-                    onChange={(event) => setAnamneseData((current) => ({
-                      ...current,
-                      biomicroscopia: { ...current.biomicroscopia, observacoes: event.target.value },
-                    }))}
-                    disabled={disabled || loadingBiomicroscopy || savingBiomicroscopy}
-                    className="clinical-input h-auto min-h-20 py-2 text-xs font-medium resize-y"
-                  />
-                </label>
-                <div className="flex justify-end">
-                  <button
-                    type="button"
-                    onClick={saveBiomicroscopy}
-                    disabled={disabled || loadingBiomicroscopy || savingBiomicroscopy}
-                    className={saveButtonClass('biomicroscopia')}
-                  >
-                    {savingBiomicroscopy ? <Clock className="w-3.5 h-3.5 animate-spin" /> : savedSection === 'biomicroscopia' ? <Check className="w-3.5 h-3.5" /> : <Save className="w-3.5 h-3.5" />}
-                    <span>{savingBiomicroscopy ? 'Salvando...' : savedSection === 'biomicroscopia' ? 'Salvo com sucesso' : 'Salvar Biomicroscopia'}</span>
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* 5. CERATOMETRIA */}
-          <div data-clinical-section="ceratometria" className="border border-slate-200/90 rounded-2xl bg-white shadow-hairline overflow-hidden transition-all">
-            <button
-              onClick={() => toggleSection('ceratometria')}
-              className="w-full p-3.5 flex items-center justify-between bg-slate-50 hover:bg-forest-50/50 text-left transition-colors font-extrabold text-xs uppercase text-slate-900"
-            >
-              <div className="flex items-center space-x-2">
-                {openSections['ceratometria'] ? <ChevronDown className="w-4 h-4 text-forest-700" /> : <ChevronRight className="w-4 h-4 text-slate-400" />}
-                <span>5. Ceratometria</span>
-              </div>
-              {openSections['ceratometria'] ? (
-                <span className="text-[10px] font-bold text-forest-800 bg-forest-50 px-2 py-0.5 rounded-md border border-forest-200/80 uppercase">
-                  Aberto
-                </span>
-              ) : (
-                <span className="text-[10px] font-bold text-slate-500 uppercase">
-                  Abrir
-                </span>
-              )}
-            </button>
-
-            {openSections['ceratometria'] && (
-              <div className="p-5 space-y-4 text-xs border-t border-slate-200 animate-fade-in bg-white">
-                <div className="flex flex-col sm:flex-row sm:items-center gap-3">
-                  <label className="font-semibold text-slate-700 sm:w-28 shrink-0 text-xs">
-                    Técnica
-                  </label>
-                  <input
-                    type="text"
-                    value={anamneseData.ceratometria.tecnica}
-                    onChange={(event) => setAnamneseData((current) => ({
-                      ...current,
-                      ceratometria: { ...current.ceratometria, tecnica: event.target.value },
-                    }))}
-                    disabled={disabled || loadingKeratometry || savingKeratometry}
-                    className="clinical-input h-9 font-medium"
-                  />
-                </div>
-
-                <div className="overflow-x-auto pt-2 border-t border-slate-200">
-                  <table className="w-full text-left border-collapse text-xs">
-                    <thead>
-                      <tr className="border-b border-slate-200/80">
-                        <th className="py-2.5 px-3 w-40 font-bold text-slate-500"></th>
-                        <th className="py-2.5 px-3 text-center font-bold text-slate-700 uppercase tracking-wider text-xs">
-                          OD
-                        </th>
-                        <th className="py-2.5 px-3 text-center font-bold text-slate-700 uppercase tracking-wider text-xs">
-                          OE
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                      {[
-                        ['horizontal', 'Meridiano horizontal', 'text'],
-                        ['vertical', 'Meridiano vertical', 'text'],
-                        ['eixo', 'Eixo', 'number'],
-                      ].map(([field, label, type]) => (
-                        <tr key={field} className="hover:bg-slate-50/60">
-                          <td className="py-2.5 px-3 font-semibold text-slate-700 align-middle">{label}</td>
-                          {['od', 'oe'].map((eye) => (
-                            <td key={eye} className="py-1.5 px-3 w-1/2">
-                              <input
-                                type={type}
-                                min={type === 'number' ? 0 : undefined}
-                                max={type === 'number' ? 180 : undefined}
-                                step={type === 'number' ? 1 : undefined}
-                                value={anamneseData.ceratometria[eye][field]}
-                                onChange={(event) => updateKeratometryEye(eye, field, event.target.value)}
-                                disabled={disabled || loadingKeratometry || savingKeratometry}
-                                className="clinical-input text-center font-mono font-bold h-9"
-                              />
-                            </td>
-                          ))}
-                        </tr>
-                      ))}
-                      <tr className="hover:bg-slate-50/60">
-                        <td className="py-2.5 px-3 font-semibold text-slate-700 align-middle">
-                          Miras
-                        </td>
-                        <td colSpan={2} className="py-1.5 px-3">
-                          <input
-                            type="text"
-                            value={anamneseData.ceratometria.miras}
-                            onChange={(event) => setAnamneseData((current) => ({
-                              ...current,
-                              ceratometria: { ...current.ceratometria, miras: event.target.value },
-                            }))}
-                            disabled={disabled || loadingKeratometry || savingKeratometry}
-                            className="clinical-input h-9 font-medium"
-                          />
-                        </td>
-                      </tr>
-                    </tbody>
-                  </table>
-                </div>
-                <label className="block">
-                  <span className="block text-[10px] font-bold uppercase text-slate-600 mb-1">Observações</span>
-                  <textarea
-                    rows={3}
-                    value={anamneseData.ceratometria.observacoes}
-                    onChange={(event) => setAnamneseData((current) => ({
-                      ...current,
-                      ceratometria: { ...current.ceratometria, observacoes: event.target.value },
-                    }))}
-                    disabled={disabled || loadingKeratometry || savingKeratometry}
-                    className="clinical-input h-auto min-h-20 py-2 text-xs font-medium resize-y"
-                  />
-                </label>
-                <div className="flex justify-end">
-                  <button
-                    type="button"
-                    onClick={saveKeratometry}
-                    disabled={disabled || loadingKeratometry || savingKeratometry}
-                    className={saveButtonClass('ceratometria')}
-                  >
-                    {savingKeratometry ? <Clock className="w-3.5 h-3.5 animate-spin" /> : savedSection === 'ceratometria' ? <Check className="w-3.5 h-3.5" /> : <Save className="w-3.5 h-3.5" />}
-                    <span>{savingKeratometry ? 'Salvando...' : savedSection === 'ceratometria' ? 'Salvo com sucesso' : 'Salvar Ceratometria'}</span>
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* 6. TONOMETRIA */}
-          <div data-clinical-section="tonometria" className="border border-slate-200/90 rounded-2xl bg-white shadow-hairline overflow-hidden transition-all">
-            <button
-              onClick={() => toggleSection('tonometria')}
-              className="w-full p-3.5 flex items-center justify-between bg-slate-50 hover:bg-forest-50/50 text-left transition-colors font-extrabold text-xs uppercase text-slate-900"
-            >
-              <div className="flex items-center space-x-2">
-                {openSections['tonometria'] ? <ChevronDown className="w-4 h-4 text-forest-700" /> : <ChevronRight className="w-4 h-4 text-slate-400" />}
-                <span>6. Tonometria</span>
-              </div>
-              {openSections['tonometria'] ? (
-                <span className="text-[10px] font-bold text-forest-800 bg-forest-50 px-2 py-0.5 rounded-md border border-forest-200/80 uppercase">
-                  Aberto
-                </span>
-              ) : (
-                <span className="text-[10px] font-bold text-slate-500 uppercase">
-                  Abrir
-                </span>
-              )}
-            </button>
-
-            {openSections['tonometria'] && (
-              <div className="p-5 space-y-4 text-xs border-t border-slate-200 animate-fade-in bg-white">
-                <div className="flex flex-col sm:flex-row sm:items-center gap-3">
-                  <label className="font-semibold text-slate-700 sm:w-28 shrink-0 text-xs">
-                    Técnica
-                  </label>
-                  <input
-                    type="text"
-                    value={anamneseData.tonometria.tecnica}
-                    onChange={(event) => setAnamneseData((current) => ({
-                      ...current,
-                      tonometria: { ...current.tonometria, tecnica: event.target.value },
-                    }))}
-                    disabled={disabled || loadingTonometry || savingTonometry}
-                    className="clinical-input h-9 font-medium"
-                  />
-                </div>
-
-                <div className="overflow-x-auto pt-2 border-t border-slate-200">
-                  <table className="w-full text-left border-collapse text-xs">
-                    <thead>
-                      <tr className="border-b border-slate-200/80">
-                        <th className="py-2.5 px-3 w-40 font-bold text-slate-500"></th>
-                        <th className="py-2.5 px-3 text-center font-bold text-slate-700 uppercase tracking-wider text-xs">
-                          OD
-                        </th>
-                        <th className="py-2.5 px-3 text-center font-bold text-slate-700 uppercase tracking-wider text-xs">
-                          OE
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                      <tr className="hover:bg-slate-50/60">
-                        <td className="py-2.5 px-3 font-semibold text-slate-700 align-middle">
-                          Pressão Intraocular
-                        </td>
-                        <td className="py-1.5 px-3 w-1/2">
-                          <input
-                            type="number"
-                            min="0"
-                            step="0.1"
-                            value={anamneseData.tonometria.odMmhg}
-                            onChange={(event) => setAnamneseData((current) => ({
-                              ...current,
-                              tonometria: { ...current.tonometria, odMmhg: event.target.value },
-                            }))}
-                            disabled={disabled || loadingTonometry || savingTonometry}
-                            className="clinical-input text-center font-mono font-bold h-9"
-                            aria-label="Pressão intraocular OD em mmHg"
-                          />
-                        </td>
-                        <td className="py-1.5 px-3 w-1/2">
-                          <input
-                            type="number"
-                            min="0"
-                            step="0.1"
-                            value={anamneseData.tonometria.oeMmhg}
-                            onChange={(event) => setAnamneseData((current) => ({
-                              ...current,
-                              tonometria: { ...current.tonometria, oeMmhg: event.target.value },
-                            }))}
-                            disabled={disabled || loadingTonometry || savingTonometry}
-                            className="clinical-input text-center font-mono font-bold h-9"
-                            aria-label="Pressão intraocular OE em mmHg"
-                          />
-                        </td>
-                      </tr>
-                      <tr className="hover:bg-slate-50/60">
-                        <td className="py-2.5 px-3 font-semibold text-slate-700 align-middle">
-                          Hora da Medição
-                        </td>
-                        <td colSpan={2} className="py-1.5 px-3">
-                          <input
-                            type="time"
-                            value={anamneseData.tonometria.horario}
-                            onChange={(event) => setAnamneseData((current) => ({
-                              ...current,
-                              tonometria: { ...current.tonometria, horario: event.target.value },
-                            }))}
-                            disabled={disabled || loadingTonometry || savingTonometry}
-                            className="clinical-input text-center font-mono font-bold h-9"
-                          />
-                        </td>
-                      </tr>
-                    </tbody>
-                  </table>
-                </div>
-                <label className="block">
-                  <span className="block text-[10px] font-bold uppercase text-slate-600 mb-1">Observações</span>
-                  <textarea
-                    rows={3}
-                    value={anamneseData.tonometria.observacoes}
-                    onChange={(event) => setAnamneseData((current) => ({
-                      ...current,
-                      tonometria: { ...current.tonometria, observacoes: event.target.value },
-                    }))}
-                    disabled={disabled || loadingTonometry || savingTonometry}
-                    className="clinical-input h-auto min-h-20 py-2 text-xs font-medium resize-y"
-                  />
-                </label>
-                <div className="flex justify-end">
-                  <button
-                    type="button"
-                    onClick={saveTonometry}
-                    disabled={disabled || loadingTonometry || savingTonometry}
-                    className={saveButtonClass('tonometria')}
-                  >
-                    {savingTonometry ? <Clock className="w-3.5 h-3.5 animate-spin" /> : savedSection === 'tonometria' ? <Check className="w-3.5 h-3.5" /> : <Save className="w-3.5 h-3.5" />}
-                    <span>{savingTonometry ? 'Salvando...' : savedSection === 'tonometria' ? 'Salvo com sucesso' : 'Salvar Tonometria'}</span>
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* 7. FOROMETRIA */}
-          <div data-clinical-section="forometria" className="border border-slate-200/90 rounded-2xl bg-white shadow-hairline overflow-hidden transition-all">
-            <button
-              onClick={() => toggleSection('forometria')}
-              className="w-full p-3.5 flex items-center justify-between bg-slate-50 hover:bg-forest-50/50 text-left transition-colors font-extrabold text-xs uppercase text-slate-900"
-            >
-              <div className="flex items-center space-x-2">
-                {openSections['forometria'] ? <ChevronDown className="w-4 h-4 text-forest-700" /> : <ChevronRight className="w-4 h-4 text-slate-400" />}
-                <span>7. Forometria</span>
-              </div>
-              {openSections['forometria'] ? (
-                <span className="text-[10px] font-bold text-forest-800 bg-forest-50 px-2 py-0.5 rounded-md border border-forest-200/80 uppercase">
-                  Aberto
-                </span>
-              ) : (
-                <span className="text-[10px] font-bold text-slate-500 uppercase">
-                  Abrir
-                </span>
-              )}
-            </button>
-
-            {openSections['forometria'] && (
-              <div className="p-5 space-y-4 text-xs border-t border-slate-200 animate-fade-in bg-white">
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                  {FOROMETRY_FIELDS.map(([field, label]) => (
-                    <label key={field} className="block">
-                      <span className="block text-[10px] font-bold uppercase text-slate-600 mb-1">{label}</span>
-                      <input
-                        type="text"
-                        value={anamneseData.forometria[field]}
-                        onChange={(event) => updateClinicalSectionField('forometria', field, event.target.value)}
-                        disabled={disabled || loadingForometry || savingForometry}
-                        className="clinical-input h-9 font-medium"
-                      />
-                    </label>
-                  ))}
-                </div>
-                <label className="block">
-                  <span className="block text-[10px] font-bold uppercase text-slate-600 mb-1">Observações</span>
-                  <textarea rows={3} value={anamneseData.forometria.observacoes} onChange={(event) => updateClinicalSectionField('forometria', 'observacoes', event.target.value)} disabled={disabled || loadingForometry || savingForometry} className="clinical-input h-auto min-h-20 py-2 text-xs font-medium resize-y" />
-                </label>
-                <div className="flex justify-end">
-                  <button type="button" onClick={saveForometry} disabled={disabled || loadingForometry || savingForometry} className={saveButtonClass('forometria')}>
-                    {savingForometry ? <Clock className="w-3.5 h-3.5 animate-spin" /> : savedSection === 'forometria' ? <Check className="w-3.5 h-3.5" /> : <Save className="w-3.5 h-3.5" />}
-                    <span>{savingForometry ? 'Salvando...' : savedSection === 'forometria' ? 'Salvo com sucesso' : 'Salvar Forometria'}</span>
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* 8. OFTALMOSCOPIA */}
-          <div data-clinical-section="oftalmoscopia" className="border border-slate-200/90 rounded-2xl bg-white shadow-hairline overflow-hidden transition-all">
-            <button
-              onClick={() => toggleSection('oftalmoscopia')}
-              className="w-full p-3.5 flex items-center justify-between bg-slate-50 hover:bg-forest-50/50 text-left transition-colors font-extrabold text-xs uppercase text-slate-900"
-            >
-              <div className="flex items-center space-x-2">
-                {openSections['oftalmoscopia'] ? <ChevronDown className="w-4 h-4 text-forest-700" /> : <ChevronRight className="w-4 h-4 text-slate-400" />}
-                <span>8. Oftalmoscopia</span>
-              </div>
-              {openSections['oftalmoscopia'] ? (
-                <span className="text-[10px] font-bold text-forest-800 bg-forest-50 px-2 py-0.5 rounded-md border border-forest-200/80 uppercase">
-                  Aberto
-                </span>
-              ) : (
-                <span className="text-[10px] font-bold text-slate-500 uppercase">
-                  Abrir
-                </span>
-              )}
-            </button>
-
-            {openSections['oftalmoscopia'] && (
-              <div className="p-5 space-y-4 text-xs border-t border-slate-200 animate-fade-in bg-white">
-                <label className="flex flex-col sm:flex-row sm:items-center gap-3">
-                  <span className="font-semibold text-slate-700 sm:w-28 shrink-0">Técnica</span>
-                  <input type="text" value={anamneseData.oftalmoscopia.tecnica} onChange={(event) => updateClinicalSectionField('oftalmoscopia', 'tecnica', event.target.value)} disabled={disabled || loadingOphthalmoscopy || savingOphthalmoscopy} className="clinical-input h-9 font-medium" />
-                </label>
-                <div className="overflow-x-auto pt-1">
-                  <table className="w-full text-left border-collapse text-xs">
-                    <thead>
-                      <tr className="border-b border-slate-200/80">
-                        <th className="py-2.5 px-3 w-40 font-bold text-slate-500"></th>
-                        <th className="py-2.5 px-3 text-center font-bold text-slate-700 uppercase tracking-wider text-xs">
-                          OD
-                        </th>
-                        <th className="py-2.5 px-3 text-center font-bold text-slate-700 uppercase tracking-wider text-xs">
-                          OE
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                      {OPHTHALMOSCOPY_FIELDS.map(([field, label]) => (
-                        <tr key={field} className="hover:bg-slate-50/60">
-                          <td className="py-2 px-3 font-semibold text-slate-700 align-middle">{label}</td>
-                          {['od', 'oe'].map((eye) => (
-                            <td key={eye} className="py-1.5 px-3 w-1/2">
-                              <input type="text" value={anamneseData.oftalmoscopia[eye][field]} onChange={(event) => updateClinicalEyeField('oftalmoscopia', eye, field, event.target.value)} disabled={disabled || loadingOphthalmoscopy || savingOphthalmoscopy} className="clinical-input h-9 font-medium" />
-                            </td>
-                          ))}
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-                <label className="block">
-                  <span className="block text-[10px] font-bold uppercase text-slate-600 mb-1">Observações</span>
-                  <textarea rows={3} value={anamneseData.oftalmoscopia.observacoes} onChange={(event) => updateClinicalSectionField('oftalmoscopia', 'observacoes', event.target.value)} disabled={disabled || loadingOphthalmoscopy || savingOphthalmoscopy} className="clinical-input h-auto min-h-20 py-2 text-xs font-medium resize-y" />
-                </label>
-                <div className="flex justify-end">
-                  <button type="button" onClick={saveOphthalmoscopy} disabled={disabled || loadingOphthalmoscopy || savingOphthalmoscopy} className={saveButtonClass('oftalmoscopia')}>
-                    {savingOphthalmoscopy ? <Clock className="w-3.5 h-3.5 animate-spin" /> : savedSection === 'oftalmoscopia' ? <Check className="w-3.5 h-3.5" /> : <Save className="w-3.5 h-3.5" />}
-                    <span>{savingOphthalmoscopy ? 'Salvando...' : savedSection === 'oftalmoscopia' ? 'Salvo com sucesso' : 'Salvar Oftalmoscopia'}</span>
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* 9. RETINOSCOPIA DINÂMICA (Fiel à Imagem 1) */}
-          <div data-clinical-section="retinoscopiaDinamica" className="border border-slate-200/90 rounded-2xl bg-white shadow-hairline overflow-hidden transition-all">
-            <button
-              onClick={() => toggleSection('retinoscopiaDinamica')}
-              className="w-full p-3.5 flex items-center justify-between bg-slate-50 hover:bg-forest-50/50 text-left transition-colors font-extrabold text-xs uppercase text-slate-900"
-            >
-              <div className="flex items-center space-x-2">
-                {openSections['retinoscopiaDinamica'] ? <ChevronDown className="w-4 h-4 text-forest-700" /> : <ChevronRight className="w-4 h-4 text-slate-400" />}
-                <span>9. Retinoscopia Dinâmica</span>
-              </div>
-              {openSections['retinoscopiaDinamica'] ? (
-                <span className="text-[10px] font-bold text-forest-800 bg-forest-50 px-2 py-0.5 rounded-md border border-forest-200/80 uppercase">
-                  Aberto
-                </span>
-              ) : (
-                <span className="text-[10px] font-bold text-slate-500 uppercase">
-                  Abrir
-                </span>
-              )}
-            </button>
-
-            {openSections['retinoscopiaDinamica'] && (
-              <div className="p-5 space-y-3 text-xs border-t border-slate-200 animate-fade-in bg-white">
-                <div className="overflow-x-auto border border-slate-200/80 rounded-2xl shadow-hairline my-2"><table className="w-full min-w-[680px] text-left border-collapse">
-                    <thead><tr className="border-b border-slate-200/80"><th className="py-2 px-3">Olho</th>{REFRACTION_FIELDS.map(([field, label]) => <th key={field} className="py-2 px-3 text-center uppercase text-[10px]">{label}</th>)}</tr></thead>
-                    <tbody className="divide-y divide-slate-100">
-                      {['od', 'oe'].map((eye) => <tr key={eye}><td className="py-2 px-3 font-bold uppercase">{eye}</td>{REFRACTION_FIELDS.map(([field, , type]) => <td key={field} className="py-1.5 px-2"><input type={type} min={type === 'number' ? 0 : undefined} max={type === 'number' ? 180 : undefined} step={type === 'number' ? 1 : undefined} value={anamneseData.retinoscopiaDinamica[eye][field]} onChange={(event) => updateClinicalEyeField('retinoscopiaDinamica', eye, field, event.target.value)} disabled={disabled || loadingDynamicRetinoscopy || savingDynamicRetinoscopy} className="clinical-input text-center font-mono font-bold h-9" /></td>)}</tr>)}
-                    </tbody>
-                  </table>
-                </div>
-                <textarea rows={3} aria-label="Observações da Retinoscopia Dinâmica" value={anamneseData.retinoscopiaDinamica.observacoes} onChange={(event) => updateClinicalSectionField('retinoscopiaDinamica', 'observacoes', event.target.value)} disabled={disabled || loadingDynamicRetinoscopy || savingDynamicRetinoscopy} className="clinical-input h-auto min-h-20 py-2 text-xs font-medium resize-y" placeholder="Observações" />
-                <div className="flex justify-end"><button type="button" onClick={saveDynamicRetinoscopy} disabled={disabled || loadingDynamicRetinoscopy || savingDynamicRetinoscopy} className={saveButtonClass('retinoscopiaDinamica')}>{savingDynamicRetinoscopy ? <Clock className="w-3.5 h-3.5 animate-spin" /> : savedSection === 'retinoscopiaDinamica' ? <Check className="w-3.5 h-3.5" /> : <Save className="w-3.5 h-3.5" />}<span>{savingDynamicRetinoscopy ? 'Salvando...' : savedSection === 'retinoscopiaDinamica' ? 'Salvo com sucesso' : 'Salvar Retinoscopia Dinâmica'}</span></button></div>
-              </div>
-            )}
-          </div>
-
-          {/* 10. RETINOSCOPIA ESTÁTICA (Fiel à Imagem 1) */}
-          <div data-clinical-section="retinoscopiaEstatica" className="border border-slate-200/90 rounded-2xl bg-white shadow-hairline overflow-hidden transition-all">
-            <button
-              onClick={() => toggleSection('retinoscopiaEstatica')}
-              className="w-full p-3.5 flex items-center justify-between bg-slate-50 hover:bg-forest-50/50 text-left transition-colors font-extrabold text-xs uppercase text-slate-900"
-            >
-              <div className="flex items-center space-x-2">
-                {openSections['retinoscopiaEstatica'] ? <ChevronDown className="w-4 h-4 text-forest-700" /> : <ChevronRight className="w-4 h-4 text-slate-400" />}
-                <span>10. Retinoscopia Estática</span>
-              </div>
-              {openSections['retinoscopiaEstatica'] ? (
-                <span className="text-[10px] font-bold text-forest-800 bg-forest-50 px-2 py-0.5 rounded-md border border-forest-200/80 uppercase">
-                  Aberto
-                </span>
-              ) : (
-                <span className="text-[10px] font-bold text-slate-500 uppercase">
-                  Abrir
-                </span>
-              )}
-            </button>
-
-            {openSections['retinoscopiaEstatica'] && (
-              <div className="p-5 space-y-3 text-xs border-t border-slate-200 animate-fade-in bg-white">
-                <div className="overflow-x-auto border border-slate-200/80 rounded-2xl shadow-hairline my-2"><table className="w-full min-w-[680px] text-left border-collapse">
-                    <thead><tr className="border-b border-slate-200/80"><th className="py-2 px-3">Olho</th>{REFRACTION_FIELDS.map(([field, label]) => <th key={field} className="py-2 px-3 text-center uppercase text-[10px]">{label}</th>)}</tr></thead>
-                    <tbody className="divide-y divide-slate-100">
-                      {['od', 'oe'].map((eye) => <tr key={eye}><td className="py-2 px-3 font-bold uppercase">{eye}</td>{REFRACTION_FIELDS.map(([field, , type]) => <td key={field} className="py-1.5 px-2"><input type={type} min={type === 'number' ? 0 : undefined} max={type === 'number' ? 180 : undefined} step={type === 'number' ? 1 : undefined} value={anamneseData.retinoscopiaEstatica[eye][field]} onChange={(event) => updateClinicalEyeField('retinoscopiaEstatica', eye, field, event.target.value)} disabled={disabled || loadingStaticRetinoscopy || savingStaticRetinoscopy} className="clinical-input text-center font-mono font-bold h-9" /></td>)}</tr>)}
-                    </tbody>
-                  </table>
-                </div>
-                <textarea rows={3} aria-label="Observações da Retinoscopia Estática" value={anamneseData.retinoscopiaEstatica.observacoes} onChange={(event) => updateClinicalSectionField('retinoscopiaEstatica', 'observacoes', event.target.value)} disabled={disabled || loadingStaticRetinoscopy || savingStaticRetinoscopy} className="clinical-input h-auto min-h-20 py-2 text-xs font-medium resize-y" placeholder="Observações" />
-                <div className="flex justify-end"><button type="button" onClick={saveStaticRetinoscopy} disabled={disabled || loadingStaticRetinoscopy || savingStaticRetinoscopy} className={saveButtonClass('retinoscopiaEstatica')}>{savingStaticRetinoscopy ? <Clock className="w-3.5 h-3.5 animate-spin" /> : savedSection === 'retinoscopiaEstatica' ? <Check className="w-3.5 h-3.5" /> : <Save className="w-3.5 h-3.5" />}<span>{savingStaticRetinoscopy ? 'Salvando...' : savedSection === 'retinoscopiaEstatica' ? 'Salvo com sucesso' : 'Salvar Retinoscopia Estática'}</span></button></div>
-              </div>
-            )}
-          </div>
-
-          {/* 11. AVALIAÇÃO MOTORA (Fiel à Imagem 2) */}
-          <div data-clinical-section="avaliacaoMotora" className="border border-slate-200/90 rounded-2xl bg-white shadow-hairline overflow-hidden transition-all">
-            <button
-              onClick={() => toggleSection('avaliacaoMotora')}
-              className="w-full p-3.5 flex items-center justify-between bg-slate-50 hover:bg-forest-50/50 text-left transition-colors font-extrabold text-xs uppercase text-slate-900"
-            >
-              <div className="flex items-center space-x-2">
-                {openSections['avaliacaoMotora'] ? <ChevronDown className="w-4 h-4 text-forest-700" /> : <ChevronRight className="w-4 h-4 text-slate-400" />}
-                <span>11. Avaliação Motora</span>
-              </div>
-              {openSections['avaliacaoMotora'] ? (
-                <span className="text-[10px] font-bold text-forest-800 bg-forest-50 px-2 py-0.5 rounded-md border border-forest-200/80 uppercase">
-                  Aberto
-                </span>
-              ) : (
-                <span className="text-[10px] font-bold text-slate-500 uppercase">
-                  Abrir
-                </span>
-              )}
-            </button>
-
-            {openSections['avaliacaoMotora'] && (
-              <div className="p-5 space-y-4 text-xs border-t border-slate-200 animate-fade-in bg-white">
-                <div className="overflow-x-auto border border-slate-200/80 rounded-2xl shadow-hairline my-2"><table className="w-full text-left border-collapse text-xs">
-                    <thead><tr className="border-b border-slate-200/80"><th className="py-2.5 px-3 w-40"></th><th className="py-2.5 px-3 text-center uppercase">OD</th><th className="py-2.5 px-3 text-center uppercase">OE</th></tr></thead>
-                    <tbody className="divide-y divide-slate-100">
-                      {[['kappa', 'Kappa'], ['hirschberg', 'Hirschberg'], ['duccoes', 'Ducções']].map(([field, label]) => <tr key={field}><td className="py-2.5 px-3 font-semibold">{label}</td>{['od', 'oe'].map((eye) => <td key={eye} className="py-1.5 px-3"><input type="text" value={anamneseData.avaliacaoMotora[field][eye]} onChange={(event) => updateMotorField(field, eye, event.target.value)} disabled={disabled || loadingMotorEvaluation || savingMotorEvaluation} className="clinical-input h-9 font-medium" /></td>)}</tr>)}
-                      <tr className="hover:bg-slate-50/60">
-                        <td className="py-2.5 px-3 font-semibold text-slate-700 align-middle">Versões</td>
-                        <td className="py-3 px-3 w-1/2 text-center">
-                          <VersoesHDiagram eye="OD" values={anamneseData.avaliacaoMotora.versoes.od} onChange={(pos, val) => updateMotorVersion('od', pos, val)} disabled={disabled || loadingMotorEvaluation || savingMotorEvaluation} />
-                        </td>
-                        <td className="py-3 px-3 w-1/2 text-center">
-                          <VersoesHDiagram eye="OE" values={anamneseData.avaliacaoMotora.versoes.oe} onChange={(pos, val) => updateMotorVersion('oe', pos, val)} disabled={disabled || loadingMotorEvaluation || savingMotorEvaluation} />
-                        </td>
-                      </tr>
-                    </tbody>
-                  </table>
-                </div>
-                <textarea rows={3} aria-label="Observações da Avaliação Motora" value={anamneseData.avaliacaoMotora.observacoes} onChange={(event) => updateClinicalSectionField('avaliacaoMotora', 'observacoes', event.target.value)} disabled={disabled || loadingMotorEvaluation || savingMotorEvaluation} className="clinical-input h-auto min-h-20 py-2 text-xs font-medium resize-y" placeholder="Observações" />
-                <div className="flex justify-end"><button type="button" onClick={saveMotorEvaluation} disabled={disabled || loadingMotorEvaluation || savingMotorEvaluation} className={saveButtonClass('avaliacaoMotora')}>{savingMotorEvaluation ? <Clock className="w-3.5 h-3.5 animate-spin" /> : savedSection === 'avaliacaoMotora' ? <Check className="w-3.5 h-3.5" /> : <Save className="w-3.5 h-3.5" />}<span>{savingMotorEvaluation ? 'Salvando...' : savedSection === 'avaliacaoMotora' ? 'Salvo com sucesso' : 'Salvar Avaliação Motora'}</span></button></div>
-              </div>
-            )}
-          </div>
-
-          {/* 12. RX FINAL */}
-          <div data-clinical-section="rxFinal" className="border border-slate-200/90 rounded-2xl bg-white shadow-hairline overflow-hidden transition-all">
-            <button
-              onClick={() => toggleSection('rxFinal')}
-              className="w-full p-3.5 flex items-center justify-between bg-slate-50 hover:bg-forest-50/50 text-left transition-colors font-extrabold text-xs uppercase text-slate-900"
-            >
-              <div className="flex items-center space-x-2">
-                {openSections['rxFinal'] ? <ChevronDown className="w-4 h-4 text-forest-700" /> : <ChevronRight className="w-4 h-4 text-slate-400" />}
-                <span>12. RX Final</span>
-              </div>
-              {openSections['rxFinal'] ? (
-                <span className="text-[10px] font-bold text-forest-800 bg-forest-50 px-2 py-0.5 rounded-md border border-forest-200/80 uppercase">
-                  Aberto
-                </span>
-              ) : (
-                <span className="text-[10px] font-bold text-slate-500 uppercase">
-                  Abrir
-                </span>
-              )}
-            </button>
-
-            {openSections['rxFinal'] && (
-              <div className="p-4 space-y-3 text-xs border-t border-slate-200 animate-fade-in">
-                <div className="overflow-x-auto border border-slate-200/80 rounded-2xl shadow-hairline my-2"><table className="w-full min-w-[900px] text-center border-collapse text-xs">
-                    <thead><tr className="bg-slate-100 border-b border-slate-200/80 font-extrabold text-[11px] text-slate-700 uppercase"><th className="py-2 px-3 text-left">Olho</th>{RX_FINAL_EYE_FIELDS.map(([field, label]) => <th key={field} className="py-2 px-3">{label}</th>)}</tr></thead>
-                    <tbody className="divide-y divide-slate-200 font-mono">
-                      {['od', 'oe'].map((eye) => <tr key={eye}><td className="py-2 px-3 text-left font-bold font-sans uppercase">{eye}</td>{RX_FINAL_EYE_FIELDS.map(([field, , type]) => <td key={field} className="py-1 px-1"><input type={type} min={field === 'eixo' ? 0 : undefined} max={field === 'eixo' ? 180 : undefined} value={anamneseData.rxFinal[eye][field]} onChange={(event) => updateClinicalEyeField('rxFinal', eye, field, event.target.value)} disabled={disabled || loadingFinalRx || savingFinalRx} className="clinical-input h-8 text-center font-mono font-bold text-xs" /></td>)}</tr>)}
-                    </tbody>
-                  </table>
-                </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">{[['adicao', 'Adição'], ['tipoLente', 'Tipo de lente'], ['filtro', 'Filtro'], ['cor', 'Cor'], ['tratamento', 'Tratamento']].map(([field, label]) => <label key={field}><span className="block text-[10px] font-bold uppercase text-slate-600 mb-1">{label}</span><input type="text" value={anamneseData.rxFinal[field]} onChange={(event) => updateClinicalSectionField('rxFinal', field, event.target.value)} disabled={disabled || loadingFinalRx || savingFinalRx} className="clinical-input h-9 font-medium" /></label>)}</div>
-                <textarea rows={3} aria-label="Observações do RX Final" value={anamneseData.rxFinal.observacoes} onChange={(event) => updateClinicalSectionField('rxFinal', 'observacoes', event.target.value)} disabled={disabled || loadingFinalRx || savingFinalRx} className="clinical-input h-auto min-h-20 py-2 text-xs font-medium resize-y" placeholder="Observações" />
-                <div className="flex justify-end"><button type="button" onClick={saveFinalRx} disabled={disabled || loadingFinalRx || savingFinalRx} className={saveButtonClass('rxFinal')}>{savingFinalRx ? <Clock className="w-3.5 h-3.5 animate-spin" /> : savedSection === 'rxFinal' ? <Check className="w-3.5 h-3.5" /> : <Save className="w-3.5 h-3.5" />}<span>{savingFinalRx ? 'Salvando...' : savedSection === 'rxFinal' ? 'Salvo com sucesso' : 'Salvar RX Final'}</span></button></div>
-              </div>
-            )}
-          </div>
-
-          {/* 13. AMPLITUDE DE ACOMODAÇÃO (Fiel à Imagem 3) */}
-          <div data-clinical-section="amplitudeAcomodacao" className="border border-slate-200/90 rounded-2xl bg-white shadow-hairline overflow-hidden transition-all">
-            <button
-              onClick={() => toggleSection('amplitudeAcomodacao')}
-              className="w-full p-3.5 flex items-center justify-between bg-slate-50 hover:bg-forest-50/50 text-left transition-colors font-extrabold text-xs uppercase text-slate-900"
-            >
-              <div className="flex items-center space-x-2">
-                {openSections['amplitudeAcomodacao'] ? <ChevronDown className="w-4 h-4 text-forest-700" /> : <ChevronRight className="w-4 h-4 text-slate-400" />}
-                <span>13. Amplitude de Acomodação</span>
-              </div>
-              {openSections['amplitudeAcomodacao'] ? (
-                <span className="text-[10px] font-bold text-forest-800 bg-forest-50 px-2 py-0.5 rounded-md border border-forest-200/80 uppercase">
-                  Aberto
-                </span>
-              ) : (
-                <span className="text-[10px] font-bold text-slate-500 uppercase">
-                  Abrir
-                </span>
-              )}
-            </button>
-
-            {openSections['amplitudeAcomodacao'] && (
-              <div className="p-5 space-y-4 text-xs border-t border-slate-200 animate-fade-in bg-white">
-                <label className="flex flex-col sm:flex-row sm:items-center gap-3">
-                  <span className="font-semibold text-slate-700 sm:w-28 shrink-0">Técnica</span>
-                  <input type="text" value={anamneseData.amplitudeAcomodacao.metodo} onChange={(event) => updateClinicalSectionField('amplitudeAcomodacao', 'metodo', event.target.value)} disabled={disabled || loadingAccommodationAmplitude || savingAccommodationAmplitude} className="clinical-input h-9 font-medium" />
-                </label>
-                <div className="divide-y divide-slate-200 border-b border-slate-200">
-                  {['od', 'oe'].map((eye) => (
-                    <div key={eye} className="grid grid-cols-1 sm:grid-cols-[72px_minmax(0,1fr)_120px_minmax(0,1fr)] items-center gap-3 py-2">
-                      <label htmlFor={`amplitude-${eye}`} className="px-2 font-medium text-slate-600 uppercase">{eye}</label>
-                      <input id={`amplitude-${eye}`} type="text" value={anamneseData.amplitudeAcomodacao[eye].amplitude} onChange={(event) => updateClinicalEyeField('amplitudeAcomodacao', eye, 'amplitude', event.target.value)} disabled={disabled || loadingAccommodationAmplitude || savingAccommodationAmplitude} className="clinical-input h-9 font-medium" />
-                      <label htmlFor={`nivel-${eye}`} className="px-1 font-medium text-slate-600">Nível</label>
-                      <input id={`nivel-${eye}`} type="text" value={anamneseData.amplitudeAcomodacao[eye].nivel} onChange={(event) => updateClinicalEyeField('amplitudeAcomodacao', eye, 'nivel', event.target.value)} disabled={disabled || loadingAccommodationAmplitude || savingAccommodationAmplitude} className="clinical-input h-9 font-medium" />
-                    </div>
-                  ))}
-                </div>
-                <div className="flex justify-end"><button type="button" onClick={saveAccommodationAmplitude} disabled={disabled || loadingAccommodationAmplitude || savingAccommodationAmplitude} className={saveButtonClass('amplitudeAcomodacao')}>{savingAccommodationAmplitude ? <Clock className="w-3.5 h-3.5 animate-spin" /> : savedSection === 'amplitudeAcomodacao' ? <Check className="w-3.5 h-3.5" /> : <Save className="w-3.5 h-3.5" />}<span>{savingAccommodationAmplitude ? 'Salvando...' : savedSection === 'amplitudeAcomodacao' ? 'Salvo com sucesso' : 'Salvar Amplitude'}</span></button></div>
-              </div>
-            )}
-          </div>
-
-          {/* 14. AFINAMENTO */}
-          <div data-clinical-section="afinamento" className="border border-slate-200/90 rounded-2xl bg-white shadow-hairline overflow-hidden transition-all">
-            <button
-              onClick={() => toggleSection('afinamento')}
-              className="w-full p-3.5 flex items-center justify-between bg-slate-50 hover:bg-forest-50/50 text-left transition-colors font-extrabold text-xs uppercase text-slate-900"
-            >
-              <div className="flex items-center space-x-2">
-                {openSections['afinamento'] ? <ChevronDown className="w-4 h-4 text-forest-700" /> : <ChevronRight className="w-4 h-4 text-slate-400" />}
-                <span>14. Afinamento</span>
-              </div>
-              {openSections['afinamento'] ? (
-                <span className="text-[10px] font-bold text-forest-800 bg-forest-50 px-2 py-0.5 rounded-md border border-forest-200/80 uppercase">
-                  Aberto
-                </span>
-              ) : (
-                <span className="text-[10px] font-bold text-slate-500 uppercase">
-                  Abrir
-                </span>
-              )}
-            </button>
-
-            {openSections['afinamento'] && (
-              <div className="p-5 space-y-3 text-xs border-t border-slate-200 animate-fade-in bg-white">
-                <div className="overflow-x-auto border border-slate-200/80 rounded-2xl shadow-hairline my-2"><table className="w-full min-w-[760px] text-left border-collapse"><thead><tr className="border-b border-slate-200/80"><th className="py-2 px-3">Olho</th>{REFRACTION_NEAR_FIELDS.map(([field, label]) => <th key={field} className="py-2 px-3 text-center uppercase text-[10px]">{label}</th>)}</tr></thead><tbody className="divide-y divide-slate-100">{['od', 'oe'].map((eye) => <tr key={eye}><td className="py-2 px-3 font-bold uppercase">{eye}</td>{REFRACTION_NEAR_FIELDS.map(([field, , type]) => <td key={field} className="py-1.5 px-2"><input type={type} min={field === 'eixo' ? 0 : undefined} max={field === 'eixo' ? 180 : undefined} value={anamneseData.afinamento[eye][field]} onChange={(event) => updateClinicalEyeField('afinamento', eye, field, event.target.value)} disabled={disabled || loadingRefinement || savingRefinement} className="clinical-input text-center font-mono font-bold" /></td>)}</tr>)}</tbody></table></div>
-                <label className="block max-w-sm"><span className="block text-[10px] font-bold uppercase text-slate-600 mb-1">Adição</span><input type="text" value={anamneseData.afinamento.adicao} onChange={(event) => updateClinicalSectionField('afinamento', 'adicao', event.target.value)} disabled={disabled || loadingRefinement || savingRefinement} className="clinical-input h-9 font-medium" /></label>
-                <textarea rows={3} aria-label="Observações do Afinamento" value={anamneseData.afinamento.observacoes} onChange={(event) => updateClinicalSectionField('afinamento', 'observacoes', event.target.value)} disabled={disabled || loadingRefinement || savingRefinement} className="clinical-input h-auto min-h-20 py-2 text-xs font-medium resize-y" placeholder="Observações" />
-                <div className="flex justify-end"><button type="button" onClick={saveRefinement} disabled={disabled || loadingRefinement || savingRefinement} className={saveButtonClass('afinamento')}>{savingRefinement ? <Clock className="w-3.5 h-3.5 animate-spin" /> : savedSection === 'afinamento' ? <Check className="w-3.5 h-3.5" /> : <Save className="w-3.5 h-3.5" />}<span>{savingRefinement ? 'Salvando...' : savedSection === 'afinamento' ? 'Salvo com sucesso' : 'Salvar Afinamento'}</span></button></div>
-                </div>
-            )}
-          </div>
-
-          {/* 15. DX (DIAGNÓSTICO E CONDUTA) */}
-          <div data-clinical-section="dx" className="border border-slate-200/90 rounded-2xl bg-white shadow-hairline overflow-hidden transition-all">
-            <button
-              onClick={() => toggleSection('dx')}
-              className="w-full p-3.5 flex items-center justify-between bg-slate-50 hover:bg-forest-50/50 text-left transition-colors font-extrabold text-xs uppercase text-slate-900"
-            >
-              <div className="flex items-center space-x-2">
-                {openSections['dx'] ? <ChevronDown className="w-4 h-4 text-forest-700" /> : <ChevronRight className="w-4 h-4 text-slate-400" />}
-                <span>15. DX (Diagnóstico e Conduta)</span>
-              </div>
-              {openSections['dx'] ? (
-                <span className="text-[10px] font-bold text-forest-800 bg-forest-50 px-2 py-0.5 rounded-md border border-forest-200/80 uppercase">
-                  Aberto
-                </span>
-              ) : (
-                <span className="text-[10px] font-bold text-slate-500 uppercase">
-                  Abrir
-                </span>
-              )}
-            </button>
-
-            {openSections['dx'] && (
-              <div className="p-5 sm:p-6 space-y-4 text-xs animate-fade-in bg-white">
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
-                  <div>
-                    <label className="clinical-label">Refrativo</label>
-                    <input type="text" value={anamneseData.dx.refrativo} onChange={(event) => updateClinicalSectionField('dx', 'refrativo', event.target.value)} className="clinical-input font-medium" />
-                  </div>
-                  <div>
-                    <label className="clinical-label">Motor</label>
-                    <input type="text" value={anamneseData.dx.motor} onChange={(event) => updateClinicalSectionField('dx', 'motor', event.target.value)} className="clinical-input font-medium" />
-                  </div>
-                  <div>
-                    <label className="clinical-label">Ocular</label>
-                    <input type="text" value={anamneseData.dx.patologico} onChange={(event) => updateClinicalSectionField('dx', 'patologico', event.target.value)} className="clinical-input font-medium" />
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div className="p-4 bg-slate-50/70 border border-slate-200/80 rounded-2xl space-y-2.5 shadow-hairline">
-                    <span className="clinical-label">Conduta</span>
-                    <div className="flex flex-wrap gap-2 pt-0.5">
-                      {["LC", "RX", "Encaminhamento", "Pleóptica", "Ortóptica"].map(c => (
-                        <label key={c} className="flex items-center space-x-1.5 cursor-pointer bg-white px-3 py-1.5 rounded-xl border border-slate-200/80 text-xs font-semibold text-slate-800 hover:bg-forest-50/60 hover:border-forest-200 transition-all shadow-hairline">
-                          <input type="checkbox" checked={anamneseData.dx.conduta.includes(c)} onChange={() => toggleDxOption('conduta', c)} className="accent-forest-700" />
-                          <span>{c}</span>
-                        </label>
-                      ))}
+                    <div className="p-4 bg-slate-50/70 border border-slate-200/80 rounded-2xl space-y-2.5 shadow-hairline">
+                      <span className="clinical-label">Controle</span>
+                      <div className="flex flex-wrap gap-2 pt-0.5">
+                        {["1 Semana", "1 Mês", "6 Meses", "1 Ano"].map(c => (
+                          <label key={c} className="flex items-center space-x-1.5 cursor-pointer bg-white px-3 py-1.5 rounded-xl border border-slate-200/80 text-xs font-semibold text-slate-800 hover:bg-forest-50/60 hover:border-forest-200 transition-all shadow-hairline">
+                            <input type="checkbox" checked={anamneseData.dx.controle.includes(c)} onChange={() => toggleDxOption('controle', c)} className="accent-forest-700" />
+                            <span>{c}</span>
+                          </label>
+                        ))}
+                      </div>
                     </div>
                   </div>
-                  <div className="p-4 bg-slate-50/70 border border-slate-200/80 rounded-2xl space-y-2.5 shadow-hairline">
-                    <span className="clinical-label">Controle</span>
-                    <div className="flex flex-wrap gap-2 pt-0.5">
-                      {["1 Semana", "1 Mês", "6 Meses", "1 Ano"].map(c => (
-                        <label key={c} className="flex items-center space-x-1.5 cursor-pointer bg-white px-3 py-1.5 rounded-xl border border-slate-200/80 text-xs font-semibold text-slate-800 hover:bg-forest-50/60 hover:border-forest-200 transition-all shadow-hairline">
-                          <input type="checkbox" checked={anamneseData.dx.controle.includes(c)} onChange={() => toggleDxOption('controle', c)} className="accent-forest-700" />
-                          <span>{c}</span>
-                        </label>
-                      ))}
-                    </div>
-                  </div>
-                </div>
 
-                <div>
-                  <label className="clinical-label">Observações DX</label>
-                  <textarea rows={3} value={anamneseData.dx.observacoes} onChange={(event) => updateClinicalSectionField('dx', 'observacoes', event.target.value)} className="clinical-input h-auto min-h-20 py-2.5 text-xs font-medium resize-y" />
+                  <div>
+                    <label className="clinical-label">Observações DX</label>
+                    <textarea rows={3} value={anamneseData.dx.observacoes} onChange={(event) => updateClinicalSectionField('dx', 'observacoes', event.target.value)} className="clinical-input h-auto min-h-20 py-2.5 text-xs font-medium resize-y" />
+                  </div>
+                  <div className="flex justify-end"><button type="button" onClick={saveDx} disabled={disabled || loadingDx || savingDx} className={saveButtonClass('dx')}>{savingDx ? <Clock className="w-3.5 h-3.5 animate-spin" /> : savedSection === 'dx' ? <Check className="w-3.5 h-3.5" /> : <Save className="w-3.5 h-3.5" />}<span>{savingDx ? 'Salvando...' : savedSection === 'dx' ? 'Salvo com sucesso' : 'Salvar DX'}</span></button></div>
                 </div>
-                <div className="flex justify-end"><button type="button" onClick={saveDx} disabled={disabled || loadingDx || savingDx} className={saveButtonClass('dx')}>{savingDx ? <Clock className="w-3.5 h-3.5 animate-spin" /> : savedSection === 'dx' ? <Check className="w-3.5 h-3.5" /> : <Save className="w-3.5 h-3.5" />}<span>{savingDx ? 'Salvando...' : savedSection === 'dx' ? 'Salvo com sucesso' : 'Salvar DX'}</span></button></div>
-              </div>
-            )}
-          </div>
+              )}
+            </div>
+          )}
 
           {/* 16. FLEXIBILIDADE E FACILIDADE DE ACOMODAÇÃO */}
-          <div data-clinical-section="flexibilidadeAcomodacao" className="border border-slate-200/90 rounded-2xl bg-white shadow-hairline overflow-hidden transition-all">
-            <button
-              onClick={() => toggleSection('flexibilidadeAcomodacao')}
-              className="w-full p-3.5 flex items-center justify-between bg-slate-50 hover:bg-forest-50/50 text-left transition-colors font-extrabold text-xs uppercase text-slate-900"
-            >
-              <div className="flex items-center space-x-2">
-                {openSections['flexibilidadeAcomodacao'] ? <ChevronDown className="w-4 h-4 text-forest-700" /> : <ChevronRight className="w-4 h-4 text-slate-400" />}
-                <span>16. Flexibilidade e Facilidade de Acomodação</span>
-              </div>
-              {openSections['flexibilidadeAcomodacao'] ? (
-                <span className="text-[10px] font-bold text-forest-800 bg-forest-50 px-2 py-0.5 rounded-md border border-forest-200/80 uppercase">
-                  Aberto
-                </span>
-              ) : (
-                <span className="text-[10px] font-bold text-slate-500 uppercase">
-                  Abrir
-                </span>
-              )}
-            </button>
-
-            {openSections['flexibilidadeAcomodacao'] && (
-              <div className="p-5 space-y-4 text-xs border-t border-slate-200 animate-fade-in bg-white">
-                <label className="flex flex-col sm:flex-row sm:items-center gap-3">
-                  <span className="font-semibold text-slate-700 sm:w-28 shrink-0">Técnica</span>
-                  <input type="text" value={anamneseData.flexibilidadeAcomodacao.tecnica} onChange={(event) => updateClinicalSectionField('flexibilidadeAcomodacao', 'tecnica', event.target.value)} className="clinical-input h-9 font-medium" />
-                </label>
-                <div className="divide-y divide-slate-200 border-y border-slate-200">
-                  {['od', 'oe'].map((eye) => (
-                    <div key={eye} className="grid grid-cols-1 sm:grid-cols-[72px_minmax(0,1fr)_120px_minmax(0,1fr)] items-center gap-3 py-2">
-                      <span className="px-2 font-semibold text-slate-700 uppercase">{eye}</span>
-                      <input type="text" value={anamneseData.flexibilidadeAcomodacao[eye].resultado} onChange={(event) => updateClinicalEyeField('flexibilidadeAcomodacao', eye, 'resultado', event.target.value)} className="clinical-input h-9 font-medium" />
-                      <span className="font-semibold text-slate-700">Ciclos / min</span>
-                      <input type="text" value={anamneseData.flexibilidadeAcomodacao[eye].ciclosMinuto} onChange={(event) => updateClinicalEyeField('flexibilidadeAcomodacao', eye, 'ciclosMinuto', event.target.value)} className="clinical-input h-9 font-medium" />
-                    </div>
-                  ))}
+          {isSectionEnabled('flexibilidadeAcomodacao') && (
+            <div data-clinical-section="flexibilidadeAcomodacao" className="border border-slate-200/90 rounded-2xl bg-white shadow-hairline overflow-hidden transition-all">
+              <button
+                onClick={() => toggleSection('flexibilidadeAcomodacao')}
+                className="w-full p-3.5 flex items-center justify-between bg-slate-50 hover:bg-forest-50/50 text-left transition-colors font-extrabold text-xs uppercase text-slate-900"
+              >
+                <div className="flex items-center space-x-2">
+                  {openSections['flexibilidadeAcomodacao'] ? <ChevronDown className="w-4 h-4 text-forest-700" /> : <ChevronRight className="w-4 h-4 text-slate-400" />}
+                  <span>16. Flexibilidade e Facilidade de Acomodação</span>
                 </div>
-                <label className="block"><span className="block font-bold text-slate-700 mb-1">Observações</span><textarea rows={2} value={anamneseData.flexibilidadeAcomodacao.observacoes} onChange={(event) => updateClinicalSectionField('flexibilidadeAcomodacao', 'observacoes', event.target.value)} className="clinical-input h-auto min-h-20 py-2 text-xs font-medium resize-y" /></label>
-                <div className="flex justify-end"><button type="button" onClick={saveAccommodationFacility} disabled={disabled || loadingAccommodationFacility || savingAccommodationFacility} className={saveButtonClass('flexibilidadeAcomodacao')}>{savingAccommodationFacility ? <Clock className="w-3.5 h-3.5 animate-spin" /> : savedSection === 'flexibilidadeAcomodacao' ? <Check className="w-3.5 h-3.5" /> : <Save className="w-3.5 h-3.5" />}<span>{savingAccommodationFacility ? 'Salvando...' : savedSection === 'flexibilidadeAcomodacao' ? 'Salvo com sucesso' : 'Salvar Flexibilidade'}</span></button></div>
-              </div>
-            )}
-          </div>
+                {openSections['flexibilidadeAcomodacao'] ? (
+                  <span className="text-[10px] font-bold text-forest-800 bg-forest-50 px-2 py-0.5 rounded-md border border-forest-200/80 uppercase">
+                    Aberto
+                  </span>
+                ) : (
+                  <span className="text-[10px] font-bold text-slate-500 uppercase">
+                    Abrir
+                  </span>
+                )}
+              </button>
+
+              {openSections['flexibilidadeAcomodacao'] && (
+                <div className="p-5 space-y-4 text-xs border-t border-slate-200 animate-fade-in bg-white">
+                  <label className="flex flex-col sm:flex-row sm:items-center gap-3">
+                    <span className="font-semibold text-slate-700 sm:w-28 shrink-0">Técnica</span>
+                    <input type="text" value={anamneseData.flexibilidadeAcomodacao.tecnica} onChange={(event) => updateClinicalSectionField('flexibilidadeAcomodacao', 'tecnica', event.target.value)} className="clinical-input h-9 font-medium" />
+                  </label>
+                  <div className="divide-y divide-slate-200 border-y border-slate-200">
+                    {['od', 'oe'].map((eye) => (
+                      <div key={eye} className="grid grid-cols-1 sm:grid-cols-[72px_minmax(0,1fr)_120px_minmax(0,1fr)] items-center gap-3 py-2">
+                        <span className="px-2 font-semibold text-slate-700 uppercase">{eye}</span>
+                        <input type="text" value={anamneseData.flexibilidadeAcomodacao[eye].resultado} onChange={(event) => updateClinicalEyeField('flexibilidadeAcomodacao', eye, 'resultado', event.target.value)} className="clinical-input h-9 font-medium" />
+                        <span className="font-semibold text-slate-700">Ciclos / min</span>
+                        <input type="text" value={anamneseData.flexibilidadeAcomodacao[eye].ciclosMinuto} onChange={(event) => updateClinicalEyeField('flexibilidadeAcomodacao', eye, 'ciclosMinuto', event.target.value)} className="clinical-input h-9 font-medium" />
+                      </div>
+                    ))}
+                  </div>
+                  <label className="block"><span className="block font-bold text-slate-700 mb-1">Observações</span><textarea rows={2} value={anamneseData.flexibilidadeAcomodacao.observacoes} onChange={(event) => updateClinicalSectionField('flexibilidadeAcomodacao', 'observacoes', event.target.value)} className="clinical-input h-auto min-h-20 py-2 text-xs font-medium resize-y" /></label>
+                  <div className="flex justify-end"><button type="button" onClick={saveAccommodationFacility} disabled={disabled || loadingAccommodationFacility || savingAccommodationFacility} className={saveButtonClass('flexibilidadeAcomodacao')}>{savingAccommodationFacility ? <Clock className="w-3.5 h-3.5 animate-spin" /> : savedSection === 'flexibilidadeAcomodacao' ? <Check className="w-3.5 h-3.5" /> : <Save className="w-3.5 h-3.5" />}<span>{savingAccommodationFacility ? 'Salvando...' : savedSection === 'flexibilidadeAcomodacao' ? 'Salvo com sucesso' : 'Salvar Flexibilidade'}</span></button></div>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* 17. ADIÇÃO */}
-          <div data-clinical-section="adicao" className="border border-slate-200/90 rounded-2xl bg-white shadow-hairline overflow-hidden transition-all">
-            <button
-              onClick={() => toggleSection('adicao')}
-              className="w-full p-3.5 flex items-center justify-between bg-slate-50 hover:bg-forest-50/50 text-left transition-colors font-extrabold text-xs uppercase text-slate-900"
-            >
-              <div className="flex items-center space-x-2">
-                {openSections['adicao'] ? <ChevronDown className="w-4 h-4 text-forest-700" /> : <ChevronRight className="w-4 h-4 text-slate-400" />}
-                <span>17. Adição</span>
-              </div>
-              {openSections['adicao'] ? (
-                <span className="text-[10px] font-bold text-forest-800 bg-forest-50 px-2 py-0.5 rounded-md border border-forest-200/80 uppercase">
-                  Aberto
-                </span>
-              ) : (
-                <span className="text-[10px] font-bold text-slate-500 uppercase">
-                  Abrir
-                </span>
-              )}
-            </button>
-
-            {openSections['adicao'] && (
-              <div className="p-5 space-y-3 text-xs border-t border-slate-200 animate-fade-in bg-white">
-                <div className="divide-y divide-slate-200">
-                  {['od', 'oe'].map((eye) => (
-                    <div key={eye} className="grid grid-cols-1 sm:grid-cols-[72px_minmax(0,1fr)_72px_minmax(0,1fr)] items-center gap-3 py-2.5">
-                      <span className="px-2 font-semibold text-slate-700 uppercase">{eye}</span>
-                      <input type="text" value={anamneseData.adicao[eye].valor} onChange={(event) => updateClinicalEyeField('adicao', eye, 'valor', event.target.value)} className="clinical-input text-center font-mono font-bold h-9" />
-                      <span className="font-semibold text-slate-700 text-center">AV</span>
-                      <input type="text" value={anamneseData.adicao[eye].av} onChange={(event) => updateClinicalEyeField('adicao', eye, 'av', event.target.value)} className="clinical-input text-center font-mono font-bold h-9" />
-                    </div>
-                  ))}
+          {isSectionEnabled('adicao') && (
+            <div data-clinical-section="adicao" className="border border-slate-200/90 rounded-2xl bg-white shadow-hairline overflow-hidden transition-all">
+              <button
+                onClick={() => toggleSection('adicao')}
+                className="w-full p-3.5 flex items-center justify-between bg-slate-50 hover:bg-forest-50/50 text-left transition-colors font-extrabold text-xs uppercase text-slate-900"
+              >
+                <div className="flex items-center space-x-2">
+                  {openSections['adicao'] ? <ChevronDown className="w-4 h-4 text-forest-700" /> : <ChevronRight className="w-4 h-4 text-slate-400" />}
+                  <span>17. Adição</span>
                 </div>
-                <label className="block"><span className="block font-bold text-slate-700 mb-1">Observações</span><textarea rows={2} value={anamneseData.adicao.observacoes} onChange={(event) => updateClinicalSectionField('adicao', 'observacoes', event.target.value)} className="clinical-input h-auto min-h-20 py-2 text-xs font-medium resize-y" /></label>
-                <div className="flex justify-end"><button type="button" onClick={saveAddition} disabled={disabled || loadingAddition || savingAddition} className={saveButtonClass('adicao')}>{savingAddition ? <Clock className="w-3.5 h-3.5 animate-spin" /> : savedSection === 'adicao' ? <Check className="w-3.5 h-3.5" /> : <Save className="w-3.5 h-3.5" />}<span>{savingAddition ? 'Salvando...' : savedSection === 'adicao' ? 'Salvo com sucesso' : 'Salvar Adição'}</span></button></div>
-              </div>
-            )}
-          </div>
+                {openSections['adicao'] ? (
+                  <span className="text-[10px] font-bold text-forest-800 bg-forest-50 px-2 py-0.5 rounded-md border border-forest-200/80 uppercase">
+                    Aberto
+                  </span>
+                ) : (
+                  <span className="text-[10px] font-bold text-slate-500 uppercase">
+                    Abrir
+                  </span>
+                )}
+              </button>
+
+              {openSections['adicao'] && (
+                <div className="p-5 space-y-3 text-xs border-t border-slate-200 animate-fade-in bg-white">
+                  <div className="divide-y divide-slate-200">
+                    {['od', 'oe'].map((eye) => (
+                      <div key={eye} className="grid grid-cols-1 sm:grid-cols-[72px_minmax(0,1fr)_72px_minmax(0,1fr)] items-center gap-3 py-2.5">
+                        <span className="px-2 font-semibold text-slate-700 uppercase">{eye}</span>
+                        <input type="text" value={anamneseData.adicao[eye].valor} onChange={(event) => updateClinicalEyeField('adicao', eye, 'valor', event.target.value)} className="clinical-input text-center font-mono font-bold h-9" />
+                        <span className="font-semibold text-slate-700 text-center">AV</span>
+                        <input type="text" value={anamneseData.adicao[eye].av} onChange={(event) => updateClinicalEyeField('adicao', eye, 'av', event.target.value)} className="clinical-input text-center font-mono font-bold h-9" />
+                      </div>
+                    ))}
+                  </div>
+                  <label className="block"><span className="block font-bold text-slate-700 mb-1">Observações</span><textarea rows={2} value={anamneseData.adicao.observacoes} onChange={(event) => updateClinicalSectionField('adicao', 'observacoes', event.target.value)} className="clinical-input h-auto min-h-20 py-2 text-xs font-medium resize-y" /></label>
+                  <div className="flex justify-end"><button type="button" onClick={saveAddition} disabled={disabled || loadingAddition || savingAddition} className={saveButtonClass('adicao')}>{savingAddition ? <Clock className="w-3.5 h-3.5 animate-spin" /> : savedSection === 'adicao' ? <Check className="w-3.5 h-3.5" /> : <Save className="w-3.5 h-3.5" />}<span>{savingAddition ? 'Salvando...' : savedSection === 'adicao' ? 'Salvo com sucesso' : 'Salvar Adição'}</span></button></div>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* 18. PPC */}
-          <div data-clinical-section="ppc" className="border border-slate-200/90 rounded-2xl bg-white shadow-hairline overflow-hidden transition-all">
-            <button
-              onClick={() => toggleSection('ppc')}
-              className="w-full p-3.5 flex items-center justify-between bg-slate-50 hover:bg-forest-50/50 text-left transition-colors font-extrabold text-xs uppercase text-slate-900"
-            >
-              <div className="flex items-center space-x-2">
-                {openSections['ppc'] ? <ChevronDown className="w-4 h-4 text-forest-700" /> : <ChevronRight className="w-4 h-4 text-slate-400" />}
-                <span>18. PPC (Ponto Próximo de Convergência)</span>
-              </div>
-              {openSections['ppc'] ? (
-                <span className="text-[10px] font-bold text-forest-800 bg-forest-50 px-2 py-0.5 rounded-md border border-forest-200/80 uppercase">
-                  Aberto
-                </span>
-              ) : (
-                <span className="text-[10px] font-bold text-slate-500 uppercase">
-                  Abrir
-                </span>
-              )}
-            </button>
-
-            {openSections['ppc'] && (
-              <div className="p-5 space-y-4 text-xs border-t border-slate-200 animate-fade-in bg-white">
-                <div className="overflow-x-auto border border-slate-200/80 rounded-2xl shadow-hairline my-2"><table className="w-full text-left border-collapse text-xs">
-                    <thead>
-                      <tr className="border-b border-slate-200/80">
-                        <th className="py-2.5 px-3 w-40 font-bold text-slate-500"></th>
-                        <th className="py-2.5 px-3 text-center font-bold text-slate-700 uppercase tracking-wider text-xs">
-                          S/C
-                        </th>
-                        <th className="py-2.5 px-3 text-center font-bold text-slate-700 uppercase tracking-wider text-xs">
-                          C/C
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                      {[
-                        { label: 'Objeto Real (OR)', key: 'objetoReal' },
-                        { label: 'Luz Pontual', key: 'luzPontual' },
-                        { label: 'Filtro Vermelho', key: 'filtroVermelho' }
-                      ].map(row => (
-                        <tr key={row.label} className="hover:bg-slate-50/60">
-                          <td className="py-2.5 px-3 font-semibold text-slate-700 align-middle">
-                            {row.label}
-                          </td>
-                          <td className="py-1.5 px-3 w-1/2">
-                            <input
-                              type="text"
-                              value={anamneseData.ppc[row.key].semCorrecao}
-                              onChange={(event) => updateClinicalEyeField('ppc', row.key, 'semCorrecao', event.target.value)}
-                              className="clinical-input h-9 font-medium"
-                            />
-                          </td>
-                          <td className="py-1.5 px-3 w-1/2">
-                            <input
-                              type="text"
-                              value={anamneseData.ppc[row.key].comCorrecao}
-                              onChange={(event) => updateClinicalEyeField('ppc', row.key, 'comCorrecao', event.target.value)}
-                              className="clinical-input h-9 font-medium"
-                            />
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+          {isSectionEnabled('ppc') && (
+            <div data-clinical-section="ppc" className="border border-slate-200/90 rounded-2xl bg-white shadow-hairline overflow-hidden transition-all">
+              <button
+                onClick={() => toggleSection('ppc')}
+                className="w-full p-3.5 flex items-center justify-between bg-slate-50 hover:bg-forest-50/50 text-left transition-colors font-extrabold text-xs uppercase text-slate-900"
+              >
+                <div className="flex items-center space-x-2">
+                  {openSections['ppc'] ? <ChevronDown className="w-4 h-4 text-forest-700" /> : <ChevronRight className="w-4 h-4 text-slate-400" />}
+                  <span>18. PPC (Ponto Próximo de Convergência)</span>
                 </div>
-                <label className="block"><span className="block font-bold text-slate-700 mb-1">Observações</span><textarea rows={2} value={anamneseData.ppc.observacoes} onChange={(event) => updateClinicalSectionField('ppc', 'observacoes', event.target.value)} className="clinical-input h-auto min-h-20 py-2 text-xs font-medium resize-y" /></label>
-                <div className="flex justify-end"><button type="button" onClick={savePpc} disabled={disabled || loadingPpc || savingPpc} className={saveButtonClass('ppc')}>{savingPpc ? <Clock className="w-3.5 h-3.5 animate-spin" /> : savedSection === 'ppc' ? <Check className="w-3.5 h-3.5" /> : <Save className="w-3.5 h-3.5" />}<span>{savingPpc ? 'Salvando...' : savedSection === 'ppc' ? 'Salvo com sucesso' : 'Salvar PPC'}</span></button></div>
-              </div>
-            )}
-          </div>
+                {openSections['ppc'] ? (
+                  <span className="text-[10px] font-bold text-forest-800 bg-forest-50 px-2 py-0.5 rounded-md border border-forest-200/80 uppercase">
+                    Aberto
+                  </span>
+                ) : (
+                  <span className="text-[10px] font-bold text-slate-500 uppercase">
+                    Abrir
+                  </span>
+                )}
+              </button>
+
+              {openSections['ppc'] && (
+                <div className="p-5 space-y-4 text-xs border-t border-slate-200 animate-fade-in bg-white">
+                  <div className="overflow-x-auto border border-slate-200/80 rounded-2xl shadow-hairline my-2"><table className="w-full text-left border-collapse text-xs">
+                      <thead>
+                        <tr className="border-b border-slate-200/80">
+                          <th className="py-2.5 px-3 w-40 font-bold text-slate-500"></th>
+                          <th className="py-2.5 px-3 text-center font-bold text-slate-700 uppercase tracking-wider text-xs">
+                            S/C
+                          </th>
+                          <th className="py-2.5 px-3 text-center font-bold text-slate-700 uppercase tracking-wider text-xs">
+                            C/C
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {[
+                          { label: 'Objeto Real (OR)', key: 'objetoReal' },
+                          { label: 'Luz Pontual', key: 'luzPontual' },
+                          { label: 'Filtro Vermelho', key: 'filtroVermelho' }
+                        ].map(row => (
+                          <tr key={row.label} className="hover:bg-slate-50/60">
+                            <td className="py-2.5 px-3 font-semibold text-slate-700 align-middle">
+                              {row.label}
+                            </td>
+                            <td className="py-1.5 px-3 w-1/2">
+                              <input
+                                type="text"
+                                value={anamneseData.ppc[row.key].semCorrecao}
+                                onChange={(event) => updateClinicalEyeField('ppc', row.key, 'semCorrecao', event.target.value)}
+                                className="clinical-input h-9 font-medium"
+                              />
+                            </td>
+                            <td className="py-1.5 px-3 w-1/2">
+                              <input
+                                type="text"
+                                value={anamneseData.ppc[row.key].comCorrecao}
+                                onChange={(event) => updateClinicalEyeField('ppc', row.key, 'comCorrecao', event.target.value)}
+                                className="clinical-input h-9 font-medium"
+                              />
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  <label className="block"><span className="block font-bold text-slate-700 mb-1">Observações</span><textarea rows={2} value={anamneseData.ppc.observacoes} onChange={(event) => updateClinicalSectionField('ppc', 'observacoes', event.target.value)} className="clinical-input h-auto min-h-20 py-2 text-xs font-medium resize-y" /></label>
+                  <div className="flex justify-end"><button type="button" onClick={savePpc} disabled={disabled || loadingPpc || savingPpc} className={saveButtonClass('ppc')}>{savingPpc ? <Clock className="w-3.5 h-3.5 animate-spin" /> : savedSection === 'ppc' ? <Check className="w-3.5 h-3.5" /> : <Save className="w-3.5 h-3.5" />}<span>{savingPpc ? 'Salvando...' : savedSection === 'ppc' ? 'Salvo com sucesso' : 'Salvar PPC'}</span></button></div>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* 19. REFLEXOS PUPILARES */}
-          <div data-clinical-section="reflexosPupilares" className="border border-slate-200/90 rounded-2xl bg-white shadow-hairline overflow-hidden transition-all">
-            <button
-              onClick={() => toggleSection('reflexosPupilares')}
-              className="w-full p-3.5 flex items-center justify-between bg-slate-50 hover:bg-forest-50/50 text-left transition-colors font-extrabold text-xs uppercase text-slate-900"
-            >
-              <div className="flex items-center space-x-2">
-                {openSections['reflexosPupilares'] ? <ChevronDown className="w-4 h-4 text-forest-700" /> : <ChevronRight className="w-4 h-4 text-slate-400" />}
-                <span>19. Reflexos Pupilares</span>
-              </div>
-              {openSections['reflexosPupilares'] ? (
-                <span className="text-[10px] font-bold text-forest-800 bg-forest-50 px-2 py-0.5 rounded-md border border-forest-200/80 uppercase">
-                  Aberto
-                </span>
-              ) : (
-                <span className="text-[10px] font-bold text-slate-500 uppercase">
-                  Abrir
-                </span>
-              )}
-            </button>
-
-            {openSections['reflexosPupilares'] && (
-              <div className="p-5 space-y-4 text-xs border-t border-slate-200 animate-fade-in bg-white">
-                <div className="overflow-x-auto border border-slate-200/80 rounded-2xl shadow-hairline my-2"><table className="w-full text-left border-collapse text-xs">
-                    <thead>
-                      <tr className="border-b border-slate-200/80">
-                        <th className="py-2.5 px-3 w-40 font-bold text-slate-500"></th>
-                        <th className="py-2.5 px-3 text-center font-bold text-slate-700 uppercase tracking-wider text-xs">
-                          OD
-                        </th>
-                        <th className="py-2.5 px-3 text-center font-bold text-slate-700 uppercase tracking-wider text-xs">
-                          OE
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                      {[
-                        { id: 'fotomotor', label: 'Fotomotor' },
-                        { id: 'consensual', label: 'Consensual' },
-                        { id: 'acomodativo', label: 'Acomodativo' }
-                      ].map(row => (
-                        <tr key={row.id} className="hover:bg-slate-50/60">
-                          <td className="py-2.5 px-3 font-semibold text-slate-700 align-middle">
-                            {row.label}
-                          </td>
-                          <td className="py-1.5 px-3 w-1/2">
-                            <input
-                              type="text"
-                              value={anamneseData.reflexosPupilares.od[row.id] || ''}
-                              onChange={(event) => updateClinicalEyeField('reflexosPupilares', 'od', row.id, event.target.value)}
-                              className="clinical-input h-9 font-medium"
-                            />
-                          </td>
-                          <td className="py-1.5 px-3 w-1/2">
-                            <input
-                              type="text"
-                              value={anamneseData.reflexosPupilares.oe[row.id] || ''}
-                              onChange={(event) => updateClinicalEyeField('reflexosPupilares', 'oe', row.id, event.target.value)}
-                              className="clinical-input h-9 font-medium"
-                            />
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+          {isSectionEnabled('reflexosPupilares') && (
+            <div data-clinical-section="reflexosPupilares" className="border border-slate-200/90 rounded-2xl bg-white shadow-hairline overflow-hidden transition-all">
+              <button
+                onClick={() => toggleSection('reflexosPupilares')}
+                className="w-full p-3.5 flex items-center justify-between bg-slate-50 hover:bg-forest-50/50 text-left transition-colors font-extrabold text-xs uppercase text-slate-900"
+              >
+                <div className="flex items-center space-x-2">
+                  {openSections['reflexosPupilares'] ? <ChevronDown className="w-4 h-4 text-forest-700" /> : <ChevronRight className="w-4 h-4 text-slate-400" />}
+                  <span>19. Reflexos Pupilares</span>
                 </div>
-                <label className="block"><span className="block font-bold text-slate-700 mb-1">Observações</span><textarea rows={2} value={anamneseData.reflexosPupilares.observacoes} onChange={(event) => updateClinicalSectionField('reflexosPupilares', 'observacoes', event.target.value)} className="clinical-input h-auto min-h-20 py-2 text-xs font-medium resize-y" /></label>
-                <div className="flex justify-end"><button type="button" onClick={savePupillaryReflexes} disabled={disabled || loadingPupillaryReflexes || savingPupillaryReflexes} className={saveButtonClass('reflexosPupilares')}>{savingPupillaryReflexes ? <Clock className="w-3.5 h-3.5 animate-spin" /> : savedSection === 'reflexosPupilares' ? <Check className="w-3.5 h-3.5" /> : <Save className="w-3.5 h-3.5" />}<span>{savingPupillaryReflexes ? 'Salvando...' : savedSection === 'reflexosPupilares' ? 'Salvo com sucesso' : 'Salvar Reflexos'}</span></button></div>
-              </div>
-            )}
-          </div>
+                {openSections['reflexosPupilares'] ? (
+                  <span className="text-[10px] font-bold text-forest-800 bg-forest-50 px-2 py-0.5 rounded-md border border-forest-200/80 uppercase">
+                    Aberto
+                  </span>
+                ) : (
+                  <span className="text-[10px] font-bold text-slate-500 uppercase">
+                    Abrir
+                  </span>
+                )}
+              </button>
+
+              {openSections['reflexosPupilares'] && (
+                <div className="p-5 space-y-4 text-xs border-t border-slate-200 animate-fade-in bg-white">
+                  <div className="overflow-x-auto border border-slate-200/80 rounded-2xl shadow-hairline my-2"><table className="w-full text-left border-collapse text-xs">
+                      <thead>
+                        <tr className="border-b border-slate-200/80">
+                          <th className="py-2.5 px-3 w-40 font-bold text-slate-500"></th>
+                          <th className="py-2.5 px-3 text-center font-bold text-slate-700 uppercase tracking-wider text-xs">
+                            OD
+                          </th>
+                          <th className="py-2.5 px-3 text-center font-bold text-slate-700 uppercase tracking-wider text-xs">
+                            OE
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {[
+                          { id: 'fotomotor', label: 'Fotomotor' },
+                          { id: 'consensual', label: 'Consensual' },
+                          { id: 'acomodativo', label: 'Acomodativo' }
+                        ].map(row => (
+                          <tr key={row.id} className="hover:bg-slate-50/60">
+                            <td className="py-2.5 px-3 font-semibold text-slate-700 align-middle">
+                              {row.label}
+                            </td>
+                            <td className="py-1.5 px-3 w-1/2">
+                              <input
+                                type="text"
+                                value={anamneseData.reflexosPupilares.od[row.id] || ''}
+                                onChange={(event) => updateClinicalEyeField('reflexosPupilares', 'od', row.id, event.target.value)}
+                                className="clinical-input h-9 font-medium"
+                              />
+                            </td>
+                            <td className="py-1.5 px-3 w-1/2">
+                              <input
+                                type="text"
+                                value={anamneseData.reflexosPupilares.oe[row.id] || ''}
+                                onChange={(event) => updateClinicalEyeField('reflexosPupilares', 'oe', row.id, event.target.value)}
+                                className="clinical-input h-9 font-medium"
+                              />
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  <label className="block"><span className="block font-bold text-slate-700 mb-1">Observações</span><textarea rows={2} value={anamneseData.reflexosPupilares.observacoes} onChange={(event) => updateClinicalSectionField('reflexosPupilares', 'observacoes', event.target.value)} className="clinical-input h-auto min-h-20 py-2 text-xs font-medium resize-y" /></label>
+                  <div className="flex justify-end"><button type="button" onClick={savePupillaryReflexes} disabled={disabled || loadingPupillaryReflexes || savingPupillaryReflexes} className={saveButtonClass('reflexosPupilares')}>{savingPupillaryReflexes ? <Clock className="w-3.5 h-3.5 animate-spin" /> : savedSection === 'reflexosPupilares' ? <Check className="w-3.5 h-3.5" /> : <Save className="w-3.5 h-3.5" />}<span>{savingPupillaryReflexes ? 'Salvando...' : savedSection === 'reflexosPupilares' ? 'Salvo com sucesso' : 'Salvar Reflexos'}</span></button></div>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* 20. RESERVAS FUSIONAIS */}
-          <div data-clinical-section="reservasFusionais" className="border border-slate-200/90 rounded-2xl bg-white shadow-hairline overflow-hidden transition-all">
-            <button
-              onClick={() => toggleSection('reservasFusionais')}
-              className="w-full p-3.5 flex items-center justify-between bg-slate-50 hover:bg-forest-50/50 text-left transition-colors font-extrabold text-xs uppercase text-slate-900"
-            >
-              <div className="flex items-center space-x-2">
-                {openSections['reservasFusionais'] ? <ChevronDown className="w-4 h-4 text-forest-700" /> : <ChevronRight className="w-4 h-4 text-slate-400" />}
-                <span>20. Reservas Fusionais</span>
-              </div>
-              {openSections['reservasFusionais'] ? (
-                <span className="text-[10px] font-bold text-forest-800 bg-forest-50 px-2 py-0.5 rounded-md border border-forest-200/80 uppercase">
-                  Aberto
-                </span>
-              ) : (
-                <span className="text-[10px] font-bold text-slate-500 uppercase">
-                  Abrir
-                </span>
-              )}
-            </button>
-
-            {openSections['reservasFusionais'] && (
-              <div className="p-5 space-y-4 text-xs border-t border-slate-200 animate-fade-in bg-white">
-                {/* Linha Superior Técnica */}
-                <div className="flex flex-col sm:flex-row sm:items-center gap-3">
-                  <label className="font-semibold text-slate-700 sm:w-28 shrink-0 text-xs">
-                    Técnica
-                  </label>
-                  <input 
-                    type="text" 
-                    value={anamneseData.reservasFusionais.tecnica} 
-                    onChange={(event) => updateClinicalSectionField('reservasFusionais', 'tecnica', event.target.value)}
-                    className="clinical-input h-9 font-medium" 
-                  />
+          {isSectionEnabled('reservasFusionais') && (
+            <div data-clinical-section="reservasFusionais" className="border border-slate-200/90 rounded-2xl bg-white shadow-hairline overflow-hidden transition-all">
+              <button
+                onClick={() => toggleSection('reservasFusionais')}
+                className="w-full p-3.5 flex items-center justify-between bg-slate-50 hover:bg-forest-50/50 text-left transition-colors font-extrabold text-xs uppercase text-slate-900"
+              >
+                <div className="flex items-center space-x-2">
+                  {openSections['reservasFusionais'] ? <ChevronDown className="w-4 h-4 text-forest-700" /> : <ChevronRight className="w-4 h-4 text-slate-400" />}
+                  <span>20. Reservas Fusionais</span>
                 </div>
+                {openSections['reservasFusionais'] ? (
+                  <span className="text-[10px] font-bold text-forest-800 bg-forest-50 px-2 py-0.5 rounded-md border border-forest-200/80 uppercase">
+                    Aberto
+                  </span>
+                ) : (
+                  <span className="text-[10px] font-bold text-slate-500 uppercase">
+                    Abrir
+                  </span>
+                )}
+              </button>
 
-                <div className="overflow-x-auto pt-2 border-t border-slate-200">
-                  <table className="w-full text-left border-collapse text-xs">
-                    <thead>
-                      <tr className="border-b border-slate-200/80">
-                        <th className="py-2.5 px-3 w-40 font-bold text-slate-500"></th>
-                        <th className="py-2.5 px-3 text-center font-bold text-slate-700 uppercase tracking-wider text-xs">
-                          VL (Visão Longe)
-                        </th>
-                        <th className="py-2.5 px-3 text-center font-bold text-slate-700 uppercase tracking-wider text-xs">
-                          VP (Visão Perto)
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                      {[
-                        { label: 'RFN (Reserva Fusional Negativa)', key: 'rfn' },
-                        { label: 'RFP (Reserva Fusional Positiva)', key: 'rfp' }
-                      ].map(row => (
-                        <tr key={row.label} className="hover:bg-slate-50/60">
-                          <td className="py-2.5 px-3 font-semibold text-slate-700 align-middle">
-                            {row.label}
-                          </td>
-                          <td className="py-1.5 px-3 w-1/2">
-                            <input
-                              type="text"
-                              value={anamneseData.reservasFusionais[row.key].vl}
-                              onChange={(event) => updateClinicalEyeField('reservasFusionais', row.key, 'vl', event.target.value)}
-                              className="clinical-input h-9 font-medium"
-                            />
-                          </td>
-                          <td className="py-1.5 px-3 w-1/2">
-                            <input
-                              type="text"
-                              value={anamneseData.reservasFusionais[row.key].vp}
-                              onChange={(event) => updateClinicalEyeField('reservasFusionais', row.key, 'vp', event.target.value)}
-                              className="clinical-input h-9 font-medium"
-                            />
-                          </td>
+              {openSections['reservasFusionais'] && (
+                <div className="p-5 space-y-4 text-xs border-t border-slate-200 animate-fade-in bg-white">
+                  {/* Linha Superior Técnica */}
+                  <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+                    <label className="font-semibold text-slate-700 sm:w-28 shrink-0 text-xs">
+                      Técnica
+                    </label>
+                    <input 
+                      type="text" 
+                      value={anamneseData.reservasFusionais.tecnica} 
+                      onChange={(event) => updateClinicalSectionField('reservasFusionais', 'tecnica', event.target.value)}
+                      className="clinical-input h-9 font-medium" 
+                    />
+                  </div>
+
+                  <div className="overflow-x-auto pt-2 border-t border-slate-200">
+                    <table className="w-full text-left border-collapse text-xs">
+                      <thead>
+                        <tr className="border-b border-slate-200/80">
+                          <th className="py-2.5 px-3 w-40 font-bold text-slate-500"></th>
+                          <th className="py-2.5 px-3 text-center font-bold text-slate-700 uppercase tracking-wider text-xs">
+                            VL (Visão Longe)
+                          </th>
+                          <th className="py-2.5 px-3 text-center font-bold text-slate-700 uppercase tracking-wider text-xs">
+                            VP (Visão Perto)
+                          </th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {[
+                          { label: 'RFN (Reserva Fusional Negativa)', key: 'rfn' },
+                          { label: 'RFP (Reserva Fusional Positiva)', key: 'rfp' }
+                        ].map(row => (
+                          <tr key={row.label} className="hover:bg-slate-50/60">
+                            <td className="py-2.5 px-3 font-semibold text-slate-700 align-middle">
+                              {row.label}
+                            </td>
+                            <td className="py-1.5 px-3 w-1/2">
+                              <input
+                                type="text"
+                                value={anamneseData.reservasFusionais[row.key].vl}
+                                onChange={(event) => updateClinicalEyeField('reservasFusionais', row.key, 'vl', event.target.value)}
+                                className="clinical-input h-9 font-medium"
+                              />
+                            </td>
+                            <td className="py-1.5 px-3 w-1/2">
+                              <input
+                                type="text"
+                                value={anamneseData.reservasFusionais[row.key].vp}
+                                onChange={(event) => updateClinicalEyeField('reservasFusionais', row.key, 'vp', event.target.value)}
+                                className="clinical-input h-9 font-medium"
+                              />
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  <label className="block"><span className="block font-bold text-slate-700 mb-1">Observações</span><textarea rows={2} value={anamneseData.reservasFusionais.observacoes} onChange={(event) => updateClinicalSectionField('reservasFusionais', 'observacoes', event.target.value)} className="clinical-input h-auto min-h-20 py-2 text-xs font-medium resize-y" /></label>
+                  <div className="flex justify-end"><button type="button" onClick={saveFusionalReserves} disabled={disabled || loadingFusionalReserves || savingFusionalReserves} className={saveButtonClass('reservasFusionais')}>{savingFusionalReserves ? <Clock className="w-3.5 h-3.5 animate-spin" /> : savedSection === 'reservasFusionais' ? <Check className="w-3.5 h-3.5" /> : <Save className="w-3.5 h-3.5" />}<span>{savingFusionalReserves ? 'Salvando...' : savedSection === 'reservasFusionais' ? 'Salvo com sucesso' : 'Salvar Reservas'}</span></button></div>
                 </div>
-                <label className="block"><span className="block font-bold text-slate-700 mb-1">Observações</span><textarea rows={2} value={anamneseData.reservasFusionais.observacoes} onChange={(event) => updateClinicalSectionField('reservasFusionais', 'observacoes', event.target.value)} className="clinical-input h-auto min-h-20 py-2 text-xs font-medium resize-y" /></label>
-                <div className="flex justify-end"><button type="button" onClick={saveFusionalReserves} disabled={disabled || loadingFusionalReserves || savingFusionalReserves} className={saveButtonClass('reservasFusionais')}>{savingFusionalReserves ? <Clock className="w-3.5 h-3.5 animate-spin" /> : savedSection === 'reservasFusionais' ? <Check className="w-3.5 h-3.5" /> : <Save className="w-3.5 h-3.5" />}<span>{savingFusionalReserves ? 'Salvando...' : savedSection === 'reservasFusionais' ? 'Salvo com sucesso' : 'Salvar Reservas'}</span></button></div>
-              </div>
-            )}
-          </div>
+              )}
+            </div>
+          )}
 
           {/* 21. SUBJETIVO */}
-          <div data-clinical-section="subjetivo" className="border border-slate-200/90 rounded-2xl bg-white shadow-hairline overflow-hidden transition-all">
-            <button
-              onClick={() => toggleSection('subjetivo')}
-              className="w-full p-3.5 flex items-center justify-between bg-slate-50 hover:bg-forest-50/50 text-left transition-colors font-extrabold text-xs uppercase text-slate-900"
-            >
-              <div className="flex items-center space-x-2">
-                {openSections['subjetivo'] ? <ChevronDown className="w-4 h-4 text-forest-700" /> : <ChevronRight className="w-4 h-4 text-slate-400" />}
-                <span>21. Subjetivo</span>
-              </div>
-              {openSections['subjetivo'] ? (
-                <span className="text-[10px] font-bold text-forest-800 bg-forest-50 px-2 py-0.5 rounded-md border border-forest-200/80 uppercase">
-                  Aberto
-                </span>
-              ) : (
-                <span className="text-[10px] font-bold text-slate-500 uppercase">
-                  Abrir
-                </span>
-              )}
-            </button>
-
-            {openSections['subjetivo'] && (
-              <div className="p-5 space-y-4 text-xs border-t border-slate-200 animate-fade-in bg-white">
-                <div className="overflow-x-auto border border-slate-200/80 rounded-2xl shadow-hairline my-2"><table className="w-full min-w-[680px] text-left border-collapse">
-                    <thead><tr className="border-b border-slate-200/80"><th className="py-2 px-3 w-16"></th>{[['esferico', 'Esférico'], ['cilindrico', 'Cilíndrico'], ['eixo', 'Eixo'], ['av', 'AV']].map(([, label]) => <th key={label} className="py-2 px-3 text-center font-bold text-slate-700 uppercase">{label}</th>)}</tr></thead>
-                    <tbody className="divide-y divide-slate-200">
-                      {['od', 'oe'].map((eye) => (
-                        <tr key={eye}>
-                          <td className="py-2 px-3 font-bold text-slate-700 uppercase">{eye}</td>
-                          {['esferico', 'cilindrico', 'eixo', 'av'].map((field) => (
-                            <td key={field} className="py-1.5 px-2"><input type={field === 'eixo' ? 'number' : 'text'} min={field === 'eixo' ? 0 : undefined} max={field === 'eixo' ? 180 : undefined} value={anamneseData.subjetivo[eye][field]} onChange={(event) => updateClinicalEyeField('subjetivo', eye, field, event.target.value)} className="clinical-input text-center font-mono font-bold h-9" /></td>
-                          ))}
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+          {isSectionEnabled('subjetivo') && (
+            <div data-clinical-section="subjetivo" className="border border-slate-200/90 rounded-2xl bg-white shadow-hairline overflow-hidden transition-all">
+              <button
+                onClick={() => toggleSection('subjetivo')}
+                className="w-full p-3.5 flex items-center justify-between bg-slate-50 hover:bg-forest-50/50 text-left transition-colors font-extrabold text-xs uppercase text-slate-900"
+              >
+                <div className="flex items-center space-x-2">
+                  {openSections['subjetivo'] ? <ChevronDown className="w-4 h-4 text-forest-700" /> : <ChevronRight className="w-4 h-4 text-slate-400" />}
+                  <span>21. Subjetivo</span>
                 </div>
-                <label className="block"><span className="block font-bold text-slate-700 mb-1">Observações</span><textarea rows={2} value={anamneseData.subjetivo.observacoes} onChange={(event) => updateClinicalSectionField('subjetivo', 'observacoes', event.target.value)} className="clinical-input h-auto min-h-20 py-2 text-xs font-medium resize-y" /></label>
-                <div className="flex justify-end"><button type="button" onClick={saveSubjective} disabled={disabled || loadingSubjective || savingSubjective} className={saveButtonClass('subjetivo')}>{savingSubjective ? <Clock className="w-3.5 h-3.5 animate-spin" /> : savedSection === 'subjetivo' ? <Check className="w-3.5 h-3.5" /> : <Save className="w-3.5 h-3.5" />}<span>{savingSubjective ? 'Salvando...' : savedSection === 'subjetivo' ? 'Salvo com sucesso' : 'Salvar Subjetivo'}</span></button></div>
-              </div>
-            )}
-          </div>
+                {openSections['subjetivo'] ? (
+                  <span className="text-[10px] font-bold text-forest-800 bg-forest-50 px-2 py-0.5 rounded-md border border-forest-200/80 uppercase">
+                    Aberto
+                  </span>
+                ) : (
+                  <span className="text-[10px] font-bold text-slate-500 uppercase">
+                    Abrir
+                  </span>
+                )}
+              </button>
+
+              {openSections['subjetivo'] && (
+                <div className="p-5 space-y-4 text-xs border-t border-slate-200 animate-fade-in bg-white">
+                  <div className="overflow-x-auto border border-slate-200/80 rounded-2xl shadow-hairline my-2"><table className="w-full min-w-[680px] text-left border-collapse">
+                      <thead><tr className="border-b border-slate-200/80"><th className="py-2 px-3 w-16"></th>{[['esferico', 'Esférico'], ['cilindrico', 'Cilíndrico'], ['eixo', 'Eixo'], ['av', 'AV']].map(([, label]) => <th key={label} className="py-2 px-3 text-center font-bold text-slate-700 uppercase">{label}</th>)}</tr></thead>
+                      <tbody className="divide-y divide-slate-200">
+                        {['od', 'oe'].map((eye) => (
+                          <tr key={eye}>
+                            <td className="py-2 px-3 font-bold text-slate-700 uppercase">{eye}</td>
+                            {['esferico', 'cilindrico', 'eixo', 'av'].map((field) => (
+                              <td key={field} className="py-1.5 px-2"><input type={field === 'eixo' ? 'number' : 'text'} min={field === 'eixo' ? 0 : undefined} max={field === 'eixo' ? 180 : undefined} value={anamneseData.subjetivo[eye][field]} onChange={(event) => updateClinicalEyeField('subjetivo', eye, field, event.target.value)} className="clinical-input text-center font-mono font-bold h-9" /></td>
+                            ))}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  <label className="block"><span className="block font-bold text-slate-700 mb-1">Observações</span><textarea rows={2} value={anamneseData.subjetivo.observacoes} onChange={(event) => updateClinicalSectionField('subjetivo', 'observacoes', event.target.value)} className="clinical-input h-auto min-h-20 py-2 text-xs font-medium resize-y" /></label>
+                  <div className="flex justify-end"><button type="button" onClick={saveSubjective} disabled={disabled || loadingSubjective || savingSubjective} className={saveButtonClass('subjetivo')}>{savingSubjective ? <Clock className="w-3.5 h-3.5 animate-spin" /> : savedSection === 'subjetivo' ? <Check className="w-3.5 h-3.5" /> : <Save className="w-3.5 h-3.5" />}<span>{savingSubjective ? 'Salvando...' : savedSection === 'subjetivo' ? 'Salvo com sucesso' : 'Salvar Subjetivo'}</span></button></div>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* 22. TESTE AMBULATORIAL */}
-          <div data-clinical-section="testeAmbulatorial" className="border border-slate-200/90 rounded-2xl bg-white shadow-hairline overflow-hidden transition-all">
-            <button
-              onClick={() => toggleSection('testeAmbulatorial')}
-              className="w-full p-3.5 flex items-center justify-between bg-slate-50 hover:bg-forest-50/50 text-left transition-colors font-extrabold text-xs uppercase text-slate-900"
-            >
-              <div className="flex items-center space-x-2">
-                {openSections['testeAmbulatorial'] ? <ChevronDown className="w-4 h-4 text-forest-700" /> : <ChevronRight className="w-4 h-4 text-slate-400" />}
-                <span>22. Teste Ambulatorial</span>
-              </div>
-              {openSections['testeAmbulatorial'] ? (
-                <span className="text-[10px] font-bold text-forest-800 bg-forest-50 px-2 py-0.5 rounded-md border border-forest-200/80 uppercase">
-                  Aberto
-                </span>
-              ) : (
-                <span className="text-[10px] font-bold text-slate-500 uppercase">
-                  Abrir
-                </span>
-              )}
-            </button>
-
-            {openSections['testeAmbulatorial'] && (
-              <div className="p-5 space-y-4 text-xs border-t border-slate-200 animate-fade-in bg-white">
-                <div className="grid grid-cols-1 sm:grid-cols-[220px_minmax(0,1fr)] gap-3">
-                  <label className="block"><span className="block font-bold text-slate-700 mb-1">Tempo de Teste (minutos)</span><input type="number" min="0" value={anamneseData.testeAmbulatorial.tempoMinutos} onChange={(event) => updateClinicalSectionField('testeAmbulatorial', 'tempoMinutos', event.target.value)} className="clinical-input h-9 font-medium" /></label>
-                  <label className="block"><span className="block font-bold text-slate-700 mb-1">Resultado e Tolerância</span><textarea rows={2} value={anamneseData.testeAmbulatorial.resultado} onChange={(event) => updateClinicalSectionField('testeAmbulatorial', 'resultado', event.target.value)} className="clinical-input h-auto min-h-20 py-2 text-xs font-medium resize-y" /></label>
+          {isSectionEnabled('testeAmbulatorial') && (
+            <div data-clinical-section="testeAmbulatorial" className="border border-slate-200/90 rounded-2xl bg-white shadow-hairline overflow-hidden transition-all">
+              <button
+                onClick={() => toggleSection('testeAmbulatorial')}
+                className="w-full p-3.5 flex items-center justify-between bg-slate-50 hover:bg-forest-50/50 text-left transition-colors font-extrabold text-xs uppercase text-slate-900"
+              >
+                <div className="flex items-center space-x-2">
+                  {openSections['testeAmbulatorial'] ? <ChevronDown className="w-4 h-4 text-forest-700" /> : <ChevronRight className="w-4 h-4 text-slate-400" />}
+                  <span>22. Teste Ambulatorial</span>
                 </div>
-                <label className="block"><span className="block font-bold text-slate-700 mb-1">Observações</span><textarea rows={2} value={anamneseData.testeAmbulatorial.observacoes} onChange={(event) => updateClinicalSectionField('testeAmbulatorial', 'observacoes', event.target.value)} className="clinical-input h-auto min-h-20 py-2 text-xs font-medium resize-y" /></label>
-                <div className="flex justify-end"><button type="button" onClick={saveAmbulatoryTest} disabled={disabled || loadingAmbulatoryTest || savingAmbulatoryTest} className={saveButtonClass('testeAmbulatorial')}>{savingAmbulatoryTest ? <Clock className="w-3.5 h-3.5 animate-spin" /> : savedSection === 'testeAmbulatorial' ? <Check className="w-3.5 h-3.5" /> : <Save className="w-3.5 h-3.5" />}<span>{savingAmbulatoryTest ? 'Salvando...' : savedSection === 'testeAmbulatorial' ? 'Salvo com sucesso' : 'Salvar Teste'}</span></button></div>
-              </div>
-            )}
-          </div>
+                {openSections['testeAmbulatorial'] ? (
+                  <span className="text-[10px] font-bold text-forest-800 bg-forest-50 px-2 py-0.5 rounded-md border border-forest-200/80 uppercase">
+                    Aberto
+                  </span>
+                ) : (
+                  <span className="text-[10px] font-bold text-slate-500 uppercase">
+                    Abrir
+                  </span>
+                )}
+              </button>
+
+              {openSections['testeAmbulatorial'] && (
+                <div className="p-5 space-y-4 text-xs border-t border-slate-200 animate-fade-in bg-white">
+                  <div className="grid grid-cols-1 sm:grid-cols-[220px_minmax(0,1fr)] gap-3">
+                    <label className="block"><span className="block font-bold text-slate-700 mb-1">Tempo de Teste (minutos)</span><input type="number" min="0" value={anamneseData.testeAmbulatorial.tempoMinutos} onChange={(event) => updateClinicalSectionField('testeAmbulatorial', 'tempoMinutos', event.target.value)} className="clinical-input h-9 font-medium" /></label>
+                    <label className="block"><span className="block font-bold text-slate-700 mb-1">Resultado e Tolerância</span><textarea rows={2} value={anamneseData.testeAmbulatorial.resultado} onChange={(event) => updateClinicalSectionField('testeAmbulatorial', 'resultado', event.target.value)} className="clinical-input h-auto min-h-20 py-2 text-xs font-medium resize-y" /></label>
+                  </div>
+                  <label className="block"><span className="block font-bold text-slate-700 mb-1">Observações</span><textarea rows={2} value={anamneseData.testeAmbulatorial.observacoes} onChange={(event) => updateClinicalSectionField('testeAmbulatorial', 'observacoes', event.target.value)} className="clinical-input h-auto min-h-20 py-2 text-xs font-medium resize-y" /></label>
+                  <div className="flex justify-end"><button type="button" onClick={saveAmbulatoryTest} disabled={disabled || loadingAmbulatoryTest || savingAmbulatoryTest} className={saveButtonClass('testeAmbulatorial')}>{savingAmbulatoryTest ? <Clock className="w-3.5 h-3.5 animate-spin" /> : savedSection === 'testeAmbulatorial' ? <Check className="w-3.5 h-3.5" /> : <Save className="w-3.5 h-3.5" />}<span>{savingAmbulatoryTest ? 'Salvando...' : savedSection === 'testeAmbulatorial' ? 'Salvo com sucesso' : 'Salvar Teste'}</span></button></div>
+                </div>
+              )}
+            </div>
+          )}
 
         </fieldset>
       )}

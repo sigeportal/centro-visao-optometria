@@ -13,6 +13,7 @@ type
     class procedure ProximasConsultas(Req: THorseRequest; Res: THorseResponse; Next: TProc);
     class procedure Aniversariantes(Req: THorseRequest; Res: THorseResponse; Next: TProc);
     class procedure ConsultasVencidas(Req: THorseRequest; Res: THorseResponse; Next: TProc);
+    class procedure Retornos(Req: THorseRequest; Res: THorseResponse; Next: TProc);
   end;
 
 implementation
@@ -28,12 +29,19 @@ uses
   Response.Utils,
   Logger.Utils;
 
+function QueryParam(Req: THorseRequest; const AName: string): string;
+begin
+  Result := '';
+  Req.Query.TryGetValue(AName, Result);
+end;
+
 class procedure TDashboardController.Registrar;
 begin
   THorse.Group.Prefix('/v1/dashboard').Get('/resumo', AutorizarRota(PERM_DASHBOARD_CONSULTAR, Resumo));
   THorse.Group.Prefix('/v1/dashboard').Get('/proximas-consultas', AutorizarRota(PERM_DASHBOARD_CONSULTAR, ProximasConsultas));
   THorse.Group.Prefix('/v1/dashboard').Get('/aniversariantes', AutorizarRota(PERM_DASHBOARD_CONSULTAR, Aniversariantes));
   THorse.Group.Prefix('/v1/dashboard').Get('/consultas-vencidas', AutorizarRota(PERM_DASHBOARD_CONSULTAR, ConsultasVencidas));
+  THorse.Group.Prefix('/v1/dashboard').Get('/retornos', AutorizarRota(PERM_DASHBOARD_CONSULTAR, Retornos));
 end;
 
 class procedure TDashboardController.Resumo(Req: THorseRequest; Res: THorseResponse; Next: TProc);
@@ -80,7 +88,7 @@ var
 begin
   Service := TDashboardService.Create;
   try
-    Res.Send<TJSONObject>(TResponseUtils.Success('Aniversariantes carregados com sucesso', Service.Aniversariantes))
+    Res.Send<TJSONObject>(TResponseUtils.Success('Aniversariantes carregados com sucesso', Service.Aniversariantes(QueryParam(Req, 'periodo'))))
       .Status(THTTPStatus.OK);
   except
     on E: Exception do
@@ -105,6 +113,25 @@ begin
     on E: Exception do
     begin
       TLogger.Error('DashboardController.ConsultasVencidas', E);
+      Res.Send<TJSONObject>(TResponseUtils.InternalError(E.Message))
+        .Status(THTTPStatus.InternalServerError);
+    end;
+  end;
+  Service.Free;
+end;
+
+class procedure TDashboardController.Retornos(Req: THorseRequest; Res: THorseResponse; Next: TProc);
+var
+  Service: TDashboardService;
+begin
+  Service := TDashboardService.Create;
+  try
+    Res.Send<TJSONObject>(TResponseUtils.Success('Retornos carregados com sucesso', Service.Retornos))
+      .Status(THTTPStatus.OK);
+  except
+    on E: Exception do
+    begin
+      TLogger.Error('DashboardController.Retornos', E);
       Res.Send<TJSONObject>(TResponseUtils.InternalError(E.Message))
         .Status(THTTPStatus.InternalServerError);
     end;

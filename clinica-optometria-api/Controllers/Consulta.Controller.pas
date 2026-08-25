@@ -369,6 +369,8 @@ class procedure TConsultaController.Finalizar(Req: THorseRequest; Res: THorseRes
 var
   Service: TAtendimentoService;
   LId: Integer;
+  LUsuarioId: Integer;
+  LBody: TJSONObject;
   LData: TJSONObject;
 begin
   Service := TAtendimentoService.Create;
@@ -377,7 +379,9 @@ begin
       LId := ParamId(Req);
       if LId <= 0 then
         raise EAtendimentoValidacao.Create('ID invalido');
-      Service.Finalizar(LId);
+      LUsuarioId := UsuarioIdAutenticado(Req);
+      LBody := Req.Body<TJSONObject>;
+      Service.Finalizar(LId, LUsuarioId, LBody);
       LData := TJSONObject.Create;
       LData.AddPair('consulta_id', TJSONNumber.Create(LId));
       LData.AddPair('status', 'realizada');
@@ -964,7 +968,7 @@ initialization
     .&End
     .Path('consultas/{id}/finalizar')
       .Tag('Consultas')
-      .POST('Finalizar consulta', 'Finaliza consulta e agenda sem exigir preenchimento da ficha clinica')
+      .POST('Finalizar consulta', 'Finaliza a consulta e registra o plano de retorno informado pelo profissional')
         .AddResponse(200, 'Consulta finalizada').&End
         .AddResponse(422, 'Consulta nao pode ser finalizada no estado atual').&End
       .&End

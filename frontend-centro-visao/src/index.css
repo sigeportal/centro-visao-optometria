@@ -137,3 +137,30 @@
 .animate-slide-down {
   animation: slideDown 0.18s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
+
+@media print {
+  *, *::before, *::after {
+    box-shadow: none !important;
+    text-shadow: none !important;
+  }
+
+  html, body, #root, main, div {
+    background: #ffffff !important;
+    background-color: #ffffff !important;
+  }
+  
+  @page {
+    margin: 8mm 10mm 10mm 10mm;
+    size: auto;
+  }
+
+  .print-avoid-break {
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+
+  .print-page-break {
+    page-break-after: always;
+    break-after: always;
+  }
+}

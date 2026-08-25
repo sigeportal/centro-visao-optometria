@@ -29,6 +29,7 @@ import AnamneseFichaClinica from './AnamneseFichaClinica';
 import PrescricaoOculosTab from './components/PrescricaoOculosTab';
 import DocumentosAtestadosTab from './components/DocumentosAtestadosTab';
 import AnexosConsultaTab from './components/AnexosConsultaTab';
+import RetornoConsultaModal from './components/RetornoConsultaModal';
 import ToastNotification from '../Common/ToastNotification';
 
 const WORKSPACE_TABS = [
@@ -64,6 +65,7 @@ export default function WorkspaceAtendimento() {
   const [activeWorkspaceTab, setActiveWorkspaceTab] = useState('ficha');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [showReturnModal, setShowReturnModal] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
   const [refreshKey, setRefreshKey] = useState(0);
   const [toast, setToast] = useState(null);
@@ -112,10 +114,15 @@ export default function WorkspaceAtendimento() {
 
   const handleFinish = async () => {
     if (!selectedConsultation || !canEditClinical || saving) return;
-    if (!window.confirm('Deseja concluir este atendimento?')) return;
+    setShowReturnModal(true);
+  };
+
+  const handleConfirmFinish = async (returnPlan) => {
+    if (!selectedConsultation || !canEditClinical || saving) return;
     setSaving(true);
     try {
-      await finalizarConsulta(selectedConsultation.id);
+      await finalizarConsulta(selectedConsultation.id, returnPlan);
+      setShowReturnModal(false);
       setToast({ type: 'success', message: `Consulta #${selectedConsultation.id} finalizada.` });
       setRefreshKey((value) => value + 1);
     } catch (error) {
@@ -327,8 +334,15 @@ export default function WorkspaceAtendimento() {
         </div>
       )}
 
+      <RetornoConsultaModal
+        open={showReturnModal}
+        consultation={selectedConsultation}
+        saving={saving}
+        onClose={() => setShowReturnModal(false)}
+        onConfirm={handleConfirmFinish}
+      />
+
       {toast && <ToastNotification message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
     </div>
   );
 }
-

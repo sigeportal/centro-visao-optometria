@@ -40,7 +40,6 @@ type
     FOEPertoDnp: string;
     FAdicao: string;
     FLente: string;
-    FRetorno: TDateTime;
     FObservacoes: string;
     FData: TDateTime;
   public
@@ -133,9 +132,6 @@ type
 
     [TCampo('REC_LENTE', 'VARCHAR(120)')]
     property Lente: string read FLente write FLente;
-
-    [TCampo('REC_RETORNO', 'DATE')]
-    property Retorno: TDateTime read FRetorno write FRetorno;
 
     [TCampo('REC_OBSERVACOES', 'VARCHAR(2000)')]
     property Observacoes: string read FObservacoes write FObservacoes;

@@ -3,6 +3,7 @@ import {
   Clock,
   DollarSign,
   Eye,
+  FileBarChart,
   LayoutDashboard,
   Lock,
   Settings,
@@ -18,6 +19,12 @@ const MENU_ITEMS = [
   { id: 'espera', label: 'Fila de Espera', icon: Clock, permissions: [PERMISSIONS.AGENDA_VIEW] },
   { id: 'pacientes', label: 'Pacientes', icon: Users, permissions: [PERMISSIONS.PATIENT_VIEW] },
   { id: 'atendimento', label: 'Consultas', icon: Stethoscope, permissions: [PERMISSIONS.CONSULTATION_SUMMARY] },
+  { 
+    id: 'relatorios', 
+    label: 'Relatórios', 
+    icon: FileBarChart, 
+    permissions: [PERMISSIONS.DASHBOARD_VIEW, PERMISSIONS.CONSULTATION_SUMMARY, PERMISSIONS.PATIENT_VIEW, PERMISSIONS.AGENDA_VIEW] 
+  },
   { id: 'financeiro', label: 'Financeiro', icon: DollarSign, permissions: [PERMISSIONS.FINANCE_VIEW], available: false },
   {
     id: 'configuracoes',
@@ -45,7 +52,7 @@ export default function Sidebar({
   };
 
   return (
-    <aside className={`fixed top-[57px] left-0 h-[calc(100vh-57px)] bg-[#02241d] text-forest-100 border-r border-[#063c30] transition-all duration-200 z-30 flex flex-col justify-between select-none shadow-panel ${sidebarOpen ? 'w-56' : 'w-16'}`}>
+    <aside className={`fixed top-[57px] left-0 h-[calc(100vh-57px)] bg-[#02241d] text-forest-100 border-r border-[#063c30] transition-all duration-200 z-30 flex flex-col justify-between select-none shadow-panel print:hidden ${sidebarOpen ? 'w-56' : 'w-16'}`}>
       <nav className="p-2.5 space-y-1 overflow-y-auto flex-1" aria-label="Navegação principal">
         {visibleItems.map((item) => {
           const Icon = item.icon;

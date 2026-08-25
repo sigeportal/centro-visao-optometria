@@ -10,7 +10,7 @@ import {
   Plus,
   RefreshCw,
 } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import {
   alterarStatusAgendamento,
   atualizarAgendamento,
@@ -76,6 +76,7 @@ const TIME_SLOTS = makeTimeSlots();
 
 export default function AgendaView({ setActiveModule }) {
   const navigate = useNavigate();
+  const location = useLocation();
   const { can } = useAuth();
   const canEditAgenda = can(PERMISSIONS.AGENDA_EDIT);
   const canStartAttendance = can(PERMISSIONS.CLINICAL_EDIT);
@@ -181,6 +182,14 @@ export default function AgendaView({ setActiveModule }) {
       },
     });
   };
+
+  useEffect(() => {
+    const prefill = location.state?.agendaPrefill;
+    if (!prefill || loadingProfessionals || !canEditAgenda) return;
+
+    openCreateModal(prefill);
+    navigate(location.pathname, { replace: true, state: null });
+  }, [location.state, location.pathname, navigate, loadingProfessionals, canEditAgenda]);
 
   const handleColumnClick = (event, dayId) => {
     if (!canEditAgenda || event.target.closest('.appointment-card')) return;

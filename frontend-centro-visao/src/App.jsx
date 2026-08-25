@@ -16,6 +16,7 @@ const NovoPacienteModal = lazy(() => import('./components/Pacientes/NovoPaciente
 const PacienteHistoricoView = lazy(() => import('./components/Pacientes/PacienteHistoricoView'));
 const WorkspaceAtendimento = lazy(() => import('./components/Atendimento/WorkspaceAtendimento'));
 const FinanceiroView = lazy(() => import('./components/Financeiro/FinanceiroView'));
+const RelatoriosView = lazy(() => import('./components/Relatorios/RelatoriosView'));
 const ConfiguracoesView = lazy(() => import('./components/Configuracoes/ConfiguracoesView'));
 
 function LoadingScreen({ label = 'Carregando...' }) {
@@ -81,6 +82,7 @@ function getActiveModule(pathname) {
   if (pathname.startsWith('/pacientes')) return 'pacientes';
   if (pathname.startsWith('/consultas')) return 'atendimento';
   if (pathname.startsWith('/financeiro')) return 'financeiro';
+  if (pathname.startsWith('/relatorios')) return 'relatorios';
   if (pathname.startsWith('/configuracoes')) return 'configuracoes';
   return 'dashboard';
 }
@@ -102,7 +104,7 @@ function ApplicationShell() {
     setSelectedPatient(patient);
   }, []);
 
-  const setActiveModule = useCallback((module) => {
+  const setActiveModule = useCallback((module, navigationOptions = {}) => {
     const patientId = selectedPatientRef.current?.id;
     const paths = {
       dashboard: '/',
@@ -112,9 +114,10 @@ function ApplicationShell() {
       'paciente-detalhe': patientId ? `/pacientes/${patientId}` : '/pacientes',
       atendimento: '/consultas',
       financeiro: '/financeiro',
+      relatorios: '/relatorios',
       configuracoes: '/configuracoes',
     };
-    navigate(paths[module] || '/');
+    navigate(paths[module] || '/', navigationOptions);
   }, [navigate]);
 
   const showToast = useCallback((message) => {
@@ -153,7 +156,7 @@ function ApplicationShell() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-800 flex flex-col font-sans">
+    <div className="min-h-screen bg-slate-50 text-slate-800 flex flex-col font-sans print:bg-white print:min-h-0">
       <Header
         sidebarOpen={sidebarOpen}
         setSidebarOpen={setSidebarOpen}
@@ -168,7 +171,7 @@ function ApplicationShell() {
           setFinanceiroSubTab={setFinanceiroSubTab}
         />
 
-        <main className={`flex-1 transition-all duration-200 p-4 sm:p-6 lg:p-7 max-w-[1640px] mx-auto w-full ${sidebarOpen ? 'ml-56' : 'ml-16'}`}>
+        <main className={`flex-1 transition-all duration-200 p-4 sm:p-6 lg:p-7 max-w-[1640px] mx-auto w-full print:m-0 print:p-0 print:max-w-full print:ml-0 ${sidebarOpen ? 'ml-56' : 'ml-16'}`}>
           <Breadcrumb
             activeModule={activeModule}
             setActiveModule={setActiveModule}
@@ -243,7 +246,11 @@ function ApplicationShell() {
                 <Navigate to="/" replace />
               )} />
               <Route path="/relatorios" element={(
-                <Navigate to="/" replace />
+                <PermissionRoute permissions={[PERMISSIONS.DASHBOARD_VIEW, PERMISSIONS.CONSULTATION_SUMMARY, PERMISSIONS.PATIENT_VIEW, PERMISSIONS.AGENDA_VIEW]}>
+                  <RelatoriosView
+                    setActiveModule={setActiveModule}
+                  />
+                </PermissionRoute>
               )} />
               <Route path="/configuracoes" element={(
                 <PermissionRoute permissions={[PERMISSIONS.SYSTEM_ADMIN, PERMISSIONS.CLINICAL_FORM_CONFIGURE]}>
@@ -284,4 +291,3 @@ export default function App() {
     </Suspense>
   );
 }
-

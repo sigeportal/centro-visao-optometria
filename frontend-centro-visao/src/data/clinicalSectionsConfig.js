@@ -23,16 +23,134 @@ export const DEFAULT_CLINICAL_SECTIONS = [
   { id: 'testeAmbulatorial', title: 'Teste Ambulatorial', subtitle: 'Avaliação de tolerância e conforto com a nova refração', enabled: true },
 ];
 
+export const ID_TO_CHAVE_MAP = {
+  anamnese: 'anamnese',
+  prescricaoUltimoExame: 'prescricao_ultimo_exame',
+  acuidadeVisual: 'acuidade_visual',
+  biomicroscopia: 'biomicroscopia',
+  ceratometria: 'ceratometria',
+  tonometria: 'tonometria',
+  forometria: 'forometria',
+  oftalmoscopia: 'oftalmoscopia',
+  retinoscopiaDinamica: 'retinoscopia_dinamica',
+  retinoscopiaEstatica: 'retinoscopia_estatica',
+  avaliacaoMotora: 'avaliacao_motora',
+  rxFinal: 'rx_final',
+  amplitudeAcomodacao: 'amplitude_acomodacao',
+  afinamento: 'afinamento',
+  dx: 'dx',
+  flexibilidadeAcomodacao: 'flexibilidade_acomodacao',
+  adicao: 'adicao',
+  ppc: 'ppc',
+  reflexosPupilares: 'reflexos_pupilares',
+  reservasFusionais: 'reservas_fusionais',
+  subjetivo: 'subjetivo',
+  testeAmbulatorial: 'teste_ambulatorial',
+};
+
+export const CHAVE_TO_ID_MAP = Object.entries(ID_TO_CHAVE_MAP).reduce((acc, [k, v]) => {
+  acc[v] = k;
+  return acc;
+}, {});
+
+export function normalizeSectionId(keyOrId) {
+  if (!keyOrId) return '';
+  if (DEFAULT_CLINICAL_SECTIONS.some(s => s.id === keyOrId)) return keyOrId;
+  return CHAVE_TO_ID_MAP[keyOrId] || keyOrId;
+}
+
+function normalizeFlag(value, fallback = true) {
+  if (value === true || value === 1 || value === '1') return true;
+  if (value === false || value === 0 || value === '0') return false;
+  if (typeof value === 'string') {
+    if (value.toLowerCase() === 'true') return true;
+    if (value.toLowerCase() === 'false') return false;
+  }
+  return fallback;
+}
+
+export function normalizeFromApi(apiItems) {
+  if (!Array.isArray(apiItems) || apiItems.length === 0) {
+    return getStoredClinicalSections();
+  }
+
+  const defaultMap = new Map(DEFAULT_CLINICAL_SECTIONS.map(s => [s.id, s]));
+  const seenIds = new Set();
+  const normalized = [];
+
+  for (const item of apiItems) {
+    const rawKey = item.chave || item.id;
+    const frontendId = normalizeSectionId(rawKey);
+    const def = defaultMap.get(frontendId);
+    if (!def) continue;
+
+    seenIds.add(frontendId);
+    const ativo = normalizeFlag(item.ativo ?? item.enabled, true);
+    const exibeTela = normalizeFlag(item.exibe_tela ?? item.exibeTela, true);
+
+    normalized.push({
+      id: frontendId,
+      dbId: typeof item.id === 'number' ? item.id : undefined,
+      title: item.nome || def.title,
+      subtitle: def.subtitle,
+      enabled: ativo && exibeTela,
+      exibeTela,
+      exibeImpressao: normalizeFlag(item.exibe_impressao ?? item.exibeImpressao, true),
+      ordem: typeof item.ordem === 'number' ? item.ordem : normalized.length + 1,
+    });
+  }
+
+  // Adiciona quaisquer seções padrão que ainda não constem na API
+  for (const def of DEFAULT_CLINICAL_SECTIONS) {
+    if (!seenIds.has(def.id)) {
+      normalized.push({
+        ...def,
+        ordem: normalized.length + 1,
+      });
+    }
+  }
+
+  return normalized;
+}
+
+export function normalizeToApi(frontendSections) {
+  if (!Array.isArray(frontendSections)) return [];
+  return frontendSections.map((s, index) => ({
+    id: s.dbId,
+    chave: ID_TO_CHAVE_MAP[s.id] || s.id,
+    nome: s.title,
+    ativo: s.enabled ? 1 : 0,
+    ordem: index + 1,
+    exibe_tela: s.enabled ? 1 : 0,
+    exibe_impressao: s.exibeImpressao !== false ? 1 : 0,
+  }));
+}
+
 export function getStoredClinicalSections() {
   try {
     const saved = localStorage.getItem('CENTRO_VISAO_CLINICAL_CONFIG') || localStorage.getItem('OPTOVISION_CLINICAL_CONFIG');
     if (saved) {
       const parsed = JSON.parse(saved);
       if (Array.isArray(parsed) && parsed.length > 0) {
-        // Ensure all default sections are present in case of newly added ones
-        const savedIds = new Set(parsed.map(s => s.id));
+        // Garantir que todos os IDs padrão estejam presentes
+        const savedIds = new Set(parsed.map(s => normalizeSectionId(s.id)));
+        const normalizedParsed = parsed.map(s => {
+          const id = normalizeSectionId(s.id);
+          const def = DEFAULT_CLINICAL_SECTIONS.find(d => d.id === id);
+          return {
+            ...def,
+            ...s,
+            id,
+            title: s.title || def?.title || id,
+            subtitle: s.subtitle || def?.subtitle || '',
+            enabled: normalizeFlag(s.enabled ?? s.ativo, true)
+              && normalizeFlag(s.exibeTela ?? s.exibe_tela, true),
+            exibeTela: normalizeFlag(s.exibeTela ?? s.exibe_tela, true),
+            exibeImpressao: normalizeFlag(s.exibeImpressao ?? s.exibe_impressao, true),
+          };
+        });
         const missing = DEFAULT_CLINICAL_SECTIONS.filter(s => !savedIds.has(s.id));
-        return [...parsed, ...missing];
+        return [...normalizedParsed, ...missing];
       }
     }
   } catch (e) {

@@ -4,15 +4,16 @@ import {
   atualizarPrescricaoConsulta,
   criarPrescricaoConsulta,
   listarPrescricoesConsulta,
-  obterImpressaoPrescricao,
   obterSecaoFichaClinica,
 } from '../../../api/consultas';
+import { obterDadosClinica } from '../../../api/configuracoes';
+import { formatCPF, formatCNPJ, formatCEP, formatPhone } from '../../../utils/formatters';
 
 const EMPTY_EYE = { esferico: '', cilindrico: '', eixo: '', av: '', prisma: '', dnp: '' };
 const EMPTY_FORM = {
   titulo: 'Prescrição para Óculos', od: { ...EMPTY_EYE }, oe: { ...EMPTY_EYE },
   modo: 'longe', perto: { od: { ...EMPTY_EYE }, oe: { ...EMPTY_EYE } },
-  adicao: '', lente: '', retorno: '', observacoes: '',
+  adicao: '', lente: '', observacoes: '',
 };
 const EYE_FIELDS = [
   ['esferico', 'Esférico (D)'], ['cilindrico', 'Cilíndrico (D)'], ['eixo', 'Eixo (°)', 'number'],
@@ -43,7 +44,7 @@ function toForm(item = {}) {
   return {
     titulo: item.titulo || EMPTY_FORM.titulo, modo: item.modo === 'longe_perto' ? 'longe_perto' : 'longe',
     od: eye('od'), oe: eye('oe'), perto: { od: eye('od_perto'), oe: eye('oe_perto') }, adicao: item.adicao || '',
-    lente: item.lente || '', retorno: dateInput(item.retorno), observacoes: item.observacoes || '',
+    lente: item.lente || '', observacoes: item.observacoes || '',
   };
 }
 
@@ -53,7 +54,7 @@ function toPayload(form) {
     modo: form.modo,
     ...Object.fromEntries(['od', 'oe'].flatMap((eye) => EYE_FIELDS.map(([field]) => [`${eye}_${field}`, form[eye][field]]))),
     ...Object.fromEntries(['od', 'oe'].flatMap((eye) => EYE_FIELDS.map(([field]) => [`${eye}_perto_${field}`, form.perto[eye][field]]))),
-    adicao: form.adicao, lente: form.lente, retorno: form.retorno, observacoes: form.observacoes,
+    adicao: form.adicao, lente: form.lente, observacoes: form.observacoes,
   };
 }
 
@@ -62,19 +63,181 @@ function escapeHtml(value) {
     .replaceAll('"', '&quot;').replaceAll("'", '&#039;');
 }
 
-function printHtml(data, consultation) {
-  const cell = (value, fallback = '-') => escapeHtml(String(value || '').trim() || fallback);
-  const observations = escapeHtml(data?.observacoes || '').replaceAll('\n', '<br>');
-  const grid = (label, prefix = '') => `<h2>${label}</h2><table><thead><tr><th>Olho</th><th>Esférico</th><th>Cilíndrico</th><th>Eixo</th><th>AV</th><th>Prisma</th><th>DNP</th></tr></thead><tbody>
-  <tr><td>OD</td><td>${cell(data?.[`od_${prefix}esferico`], 'Plano')}</td><td>${cell(data?.[`od_${prefix}cilindrico`])}</td><td>${cell(data?.[`od_${prefix}eixo`])}</td><td>${cell(data?.[`od_${prefix}av`])}</td><td>${cell(data?.[`od_${prefix}prisma`])}</td><td>${cell(data?.[`od_${prefix}dnp`])}</td></tr>
-  <tr><td>OE</td><td>${cell(data?.[`oe_${prefix}esferico`], 'Plano')}</td><td>${cell(data?.[`oe_${prefix}cilindrico`])}</td><td>${cell(data?.[`oe_${prefix}eixo`])}</td><td>${cell(data?.[`oe_${prefix}av`])}</td><td>${cell(data?.[`oe_${prefix}prisma`])}</td><td>${cell(data?.[`oe_${prefix}dnp`])}</td></tr></tbody></table>`;
-  const isNearMode = data?.modo === 'longe_perto';
-  return `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>${escapeHtml(data?.titulo || EMPTY_FORM.titulo)}</title>
-  <style>*{box-sizing:border-box}body{padding:32px;color:#111827;font:12px Arial,sans-serif}header{border-bottom:2px solid #c2410c;padding-bottom:12px;margin-bottom:20px}h1{margin:0;color:#c2410c;font-size:20px;text-transform:uppercase}h2{margin:18px 0 6px;font-size:12px;text-transform:uppercase}.meta{display:grid;grid-template-columns:2fr 1fr;gap:12px}.box,.details{border:1px solid #cbd5e1;padding:10px}.label{display:block;color:#64748b;font-size:10px;font-weight:700;text-transform:uppercase;margin-bottom:4px}table{width:100%;border-collapse:collapse;margin:0;text-align:center}th,td{border:1px solid #94a3b8;padding:9px 6px}th{background:#f1f5f9;font-size:10px;text-transform:uppercase}td:first-child{color:#c2410c;font-weight:700}.addition{border:1px solid #cbd5e1;padding:9px;margin-top:12px}.details{line-height:1.7;margin-top:18px}.signature{width:280px;margin:72px 0 0 auto;border-top:1px solid #111827;padding-top:6px;text-align:center}@page{margin:18mm}@media print{body{padding:0}}</style></head><body>
-  <header><h1>${escapeHtml(data?.titulo || EMPTY_FORM.titulo)}</h1></header><div class="meta"><div class="box"><span class="label">Paciente</span><strong>${escapeHtml(consultation?.patientName || 'Paciente não informado')}</strong></div><div class="box"><span class="label">Emissão</span><strong>${formatDate(data?.data)}</strong></div></div>
-  ${grid('Para Longe')}${isNearMode ? `<div class="addition"><strong>Adição:</strong> ${cell(data?.adicao)}</div>${grid('Para Perto', 'perto_')}` : ''}
-  <div class="details"><div><strong>Lente recomendada:</strong> ${cell(data?.lente)}</div><div><strong>Retorno:</strong> ${data?.retorno ? formatDate(data.retorno) : '-'}</div>${observations ? `<div><strong>Observações:</strong> ${observations}</div>` : ''}</div>
-  <div class="signature"><strong>${escapeHtml(consultation?.doctor || 'Profissional não informado')}</strong><br>Profissional responsável</div></body></html>`;
+function generatePrescriptionHtml(form, consultation, clinicInfo) {
+  const cell = (value, fallback = '—') => escapeHtml(String(value || '').trim() || fallback);
+  const observations = escapeHtml(form?.observacoes || '').replaceAll('\n', '<br>');
+  const isNearMode = form?.modo === 'longe_perto';
+  
+  const addressLine = [
+    clinicInfo?.address,
+    clinicInfo?.city && clinicInfo?.state ? `${clinicInfo.city} - ${clinicInfo.state}` : (clinicInfo?.city || clinicInfo?.state),
+    clinicInfo?.cep ? `CEP: ${formatCEP(clinicInfo.cep)}` : null,
+    clinicInfo?.phone ? `Tel/WhatsApp: ${formatPhone(clinicInfo.phone)}` : null,
+  ].filter(Boolean).join(' • ');
+
+  const grid = (title, data) => `
+    <div style="margin-top: 16px;">
+      <div style="background: #f8fafc; border: 1px solid #cbd5e1; border-bottom: none; padding: 6px 12px; font-weight: bold; font-size: 11px; text-transform: uppercase; color: #1e293b;">
+        ${title}
+      </div>
+      <table style="width: 100%; border-collapse: collapse; text-align: center; font-size: 11.5px;">
+        <thead>
+          <tr style="background: #f1f5f9; text-transform: uppercase; font-size: 10px; color: #475569;">
+            <th style="border: 1px solid #cbd5e1; padding: 8px 6px; width: 60px;">Olho</th>
+            <th style="border: 1px solid #cbd5e1; padding: 8px 6px;">Esférico</th>
+            <th style="border: 1px solid #cbd5e1; padding: 8px 6px;">Cilíndrico</th>
+            <th style="border: 1px solid #cbd5e1; padding: 8px 6px;">Eixo</th>
+            <th style="border: 1px solid #cbd5e1; padding: 8px 6px;">AV</th>
+            <th style="border: 1px solid #cbd5e1; padding: 8px 6px;">Prisma</th>
+            <th style="border: 1px solid #cbd5e1; padding: 8px 6px;">DNP</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td style="border: 1px solid #cbd5e1; padding: 8px 6px; font-weight: bold; color: #065f46; background: #f0fdf4;">OD</td>
+            <td style="border: 1px solid #cbd5e1; padding: 8px 6px; font-family: monospace; font-weight: bold;">${cell(data?.od?.esferico, 'Plano')}</td>
+            <td style="border: 1px solid #cbd5e1; padding: 8px 6px; font-family: monospace;">${cell(data?.od?.cilindrico)}</td>
+            <td style="border: 1px solid #cbd5e1; padding: 8px 6px; font-family: monospace;">${cell(data?.od?.eixo ? `${data.od.eixo}°` : '')}</td>
+            <td style="border: 1px solid #cbd5e1; padding: 8px 6px; font-family: monospace;">${cell(data?.od?.av)}</td>
+            <td style="border: 1px solid #cbd5e1; padding: 8px 6px; font-family: monospace;">${cell(data?.od?.prisma)}</td>
+            <td style="border: 1px solid #cbd5e1; padding: 8px 6px; font-family: monospace;">${cell(data?.od?.dnp)}</td>
+          </tr>
+          <tr>
+            <td style="border: 1px solid #cbd5e1; padding: 8px 6px; font-weight: bold; color: #065f46; background: #f0fdf4;">OE</td>
+            <td style="border: 1px solid #cbd5e1; padding: 8px 6px; font-family: monospace; font-weight: bold;">${cell(data?.oe?.esferico, 'Plano')}</td>
+            <td style="border: 1px solid #cbd5e1; padding: 8px 6px; font-family: monospace;">${cell(data?.oe?.cilindrico)}</td>
+            <td style="border: 1px solid #cbd5e1; padding: 8px 6px; font-family: monospace;">${cell(data?.oe?.eixo ? `${data.oe.eixo}°` : '')}</td>
+            <td style="border: 1px solid #cbd5e1; padding: 8px 6px; font-family: monospace;">${cell(data?.oe?.av)}</td>
+            <td style="border: 1px solid #cbd5e1; padding: 8px 6px; font-family: monospace;">${cell(data?.oe?.prisma)}</td>
+            <td style="border: 1px solid #cbd5e1; padding: 8px 6px; font-family: monospace;">${cell(data?.oe?.dnp)}</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  `;
+
+  return `<!doctype html>
+  <html lang="pt-BR">
+  <head>
+    <meta charset="utf-8">
+    <title>${escapeHtml(form?.titulo || 'Prescrição para Óculos')}</title>
+    <style>
+      * { box-sizing: border-box; margin: 0; padding: 0; }
+      body {
+        font-family: Arial, Helvetica, sans-serif;
+        color: #0f172a;
+        background: #ffffff;
+        padding: 24px;
+        font-size: 12px;
+        line-height: 1.4;
+      }
+      @page {
+        margin: 12mm 15mm 15mm 15mm;
+        size: auto;
+      }
+      @media print {
+        body { padding: 0; background: #ffffff !important; }
+      }
+    </style>
+  </head>
+  <body>
+    <!-- Cabeçalho Institucional -->
+    <div style="display: flex; align-items: center; justify-content: space-between; border-bottom: 2px solid #065f46; padding-bottom: 12px; margin-bottom: 16px;">
+      <div style="display: flex; align-items: center; gap: 12px;">
+        <img src="/logo-centro-visao.png" alt="Centro Visão" style="width: 48px; height: 48px; object-fit: contain;" />
+        <div>
+          <h1 style="font-size: 16px; font-weight: bold; text-transform: uppercase; color: #064e3b; letter-spacing: 0.5px;">
+            ${escapeHtml(clinicInfo?.name || 'CENTRO VISÃO')}
+          </h1>
+          ${clinicInfo?.cnpj ? `<div style="font-size: 10px; color: #334155; font-family: monospace; font-weight: bold; margin-top: 2px;">CNPJ: ${escapeHtml(formatCNPJ(clinicInfo.cnpj))}</div>` : ''}
+          ${addressLine ? `<div style="font-size: 9.5px; color: #64748b; font-family: monospace; margin-top: 2px;">${escapeHtml(addressLine)}</div>` : ''}
+        </div>
+      </div>
+      <div style="text-align: right; font-size: 10px; color: #64748b;">
+        <div style="font-weight: bold; color: #0f172a; text-transform: uppercase;">Receituário Óptico</div>
+        <div>Emissão: ${new Date().toLocaleDateString('pt-BR')}</div>
+      </div>
+    </div>
+
+    <!-- Título do Documento -->
+    <div style="text-align: center; margin-bottom: 16px;">
+      <h2 style="font-size: 14px; font-weight: bold; text-transform: uppercase; color: #0f172a; letter-spacing: 1px;">
+        ${escapeHtml(form?.titulo || 'Prescrição para Óculos')}
+      </h2>
+    </div>
+
+    <!-- Dados do Paciente -->
+    <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px 14px; margin-bottom: 16px; display: grid; grid-template-columns: 2fr 1fr 1fr; gap: 12px; font-size: 11px;">
+      <div>
+        <span style="font-size: 9.5px; font-weight: bold; text-transform: uppercase; color: #64748b; display: block;">Paciente</span>
+        <strong style="font-size: 12px; color: #0f172a;">${escapeHtml(consultation?.patientName || 'Paciente não informado')}</strong>
+      </div>
+      <div>
+        <span style="font-size: 9.5px; font-weight: bold; text-transform: uppercase; color: #64748b; display: block;">CPF</span>
+        <span style="font-family: monospace; color: #334155; font-weight: bold;">${escapeHtml(consultation?.patientCpf ? formatCPF(consultation.patientCpf) : '—')}</span>
+      </div>
+      <div>
+        <span style="font-size: 9.5px; font-weight: bold; text-transform: uppercase; color: #64748b; display: block;">Data da Consulta</span>
+        <span style="font-family: monospace; color: #334155;">${escapeHtml(consultation?.date ? new Date(consultation.date).toLocaleDateString('pt-BR') : new Date().toLocaleDateString('pt-BR'))}</span>
+      </div>
+    </div>
+
+    <!-- Grade Refrativa (Para Longe) -->
+    ${grid('Visão de Longe', form)}
+
+    <!-- Se tiver modo longe e perto -->
+    ${isNearMode ? `
+      <div style="margin-top: 12px; padding: 8px 12px; background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 11.5px;">
+        <strong style="color: #065f46;">Adição:</strong> <span style="font-family: monospace; font-weight: bold;">${cell(form?.adicao)}</span>
+      </div>
+      ${grid('Visão de Perto', { od: form?.perto?.od, oe: form?.perto?.oe })}
+    ` : ''}
+
+    <!-- Detalhes da Lente e Observações -->
+    <div style="margin-top: 16px; border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px 14px; background: #ffffff; font-size: 11px;">
+      ${form?.lente ? `<div style="margin-bottom: 6px;"><strong>Lente Recomendada:</strong> ${cell(form.lente)}</div>` : ''}
+      ${observations ? `<div><strong>Observações:</strong> <span style="color: #334155;">${observations}</span></div>` : ''}
+    </div>
+
+    <!-- Validade e Assinatura -->
+    <div style="margin-top: 48px; display: flex; align-items: flex-end; justify-content: space-between; font-size: 10px;">
+      <div style="color: #64748b;">
+        <div>Validade desta prescrição: 12 meses a contar da data de emissão.</div>
+        <div style="margin-top: 2px;">Prescrição emitida via sistema eletrônico Centro Visão.</div>
+      </div>
+      <div style="text-align: center; width: 240px;">
+        <div style="border-bottom: 1px solid #0f172a; margin-bottom: 6px;"></div>
+        <div style="font-weight: bold; color: #0f172a; font-size: 11px;">Optometrista Responsável</div>
+      </div>
+    </div>
+  </body>
+  </html>`;
+}
+
+function printViaIframe(html) {
+  const iframe = document.createElement('iframe');
+  iframe.style.position = 'fixed';
+  iframe.style.right = '0';
+  iframe.style.bottom = '0';
+  iframe.style.width = '0';
+  iframe.style.height = '0';
+  iframe.style.border = '0';
+  document.body.appendChild(iframe);
+
+  const doc = iframe.contentWindow.document;
+  doc.open();
+  doc.write(html);
+  doc.close();
+
+  iframe.contentWindow.focus();
+  setTimeout(() => {
+    iframe.contentWindow.print();
+    setTimeout(() => {
+      if (document.body.contains(iframe)) {
+        document.body.removeChild(iframe);
+      }
+    }, 1500);
+  }, 250);
 }
 
 export default function PrescricaoOculosTab({ consultation, disabled = false, onNotify }) {
@@ -82,11 +245,31 @@ export default function PrescricaoOculosTab({ consultation, disabled = false, on
   const [items, setItems] = useState([]);
   const [form, setForm] = useState(EMPTY_FORM);
   const [editingId, setEditingId] = useState(null);
+  const [clinicInfo, setClinicInfo] = useState({ name: '', cnpj: '', phone: '', address: '', city: '', state: '', cep: '' });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [importing, setImporting] = useState(false);
   const [printingId, setPrintingId] = useState(null);
   const [saved, setSaved] = useState(false);
+
+  // Carrega dados da clínica
+  useEffect(() => {
+    const controller = new AbortController();
+    obterDadosClinica({ signal: controller.signal })
+      .then((data) => {
+        setClinicInfo({
+          name: data?.nome || data?.name || '',
+          cnpj: data?.cnpj || '',
+          phone: data?.telefone || data?.phone || '',
+          address: data?.endereco || data?.address || '',
+          city: data?.cidade || data?.city || '',
+          state: data?.estado || data?.state || '',
+          cep: data?.cep || '',
+        });
+      })
+      .catch(() => {});
+    return () => controller.abort();
+  }, []);
 
   const load = useCallback(async (signal) => {
     if (!consultation?.id) return [];
@@ -97,10 +280,22 @@ export default function PrescricaoOculosTab({ consultation, disabled = false, on
 
   useEffect(() => {
     const controller = new AbortController();
-    setLoading(true); setItems([]); setEditingId(null); setForm(EMPTY_FORM);
-    load(controller.signal).catch((error) => {
-      if (error?.code !== 'ERR_CANCELED') onNotify?.('error', errorMessage(error, 'Não foi possível carregar as prescrições.'));
-    }).finally(() => { if (!controller.signal.aborted) setLoading(false); });
+    setLoading(true);
+    load(controller.signal)
+      .then((loaded) => {
+        if (loaded && loaded.length > 0) {
+          // Seleciona automaticamente a prescrição mais recente
+          setEditingId(loaded[0].id);
+          setForm(toForm(loaded[0]));
+        } else {
+          setEditingId(null);
+          setForm(EMPTY_FORM);
+        }
+      })
+      .catch((error) => {
+        if (error?.code !== 'ERR_CANCELED') onNotify?.('error', errorMessage(error, 'Não foi possível carregar as prescrições.'));
+      })
+      .finally(() => { if (!controller.signal.aborted) setLoading(false); });
     return () => controller.abort();
   }, [load, onNotify]);
 
@@ -129,6 +324,7 @@ export default function PrescricaoOculosTab({ consultation, disabled = false, on
         oe: { ...current.oe, esferico: oe.esferico ?? '', cilindrico: oe.cilindrico ?? '', eixo: oe.eixo ?? '', av: oe.av_longe ?? '', dnp: oe.dnp ?? '' },
         adicao: content.adicao ?? '', lente: lens, observacoes: content.observacoes ?? '',
       }));
+      onNotify?.('success', 'Dados do RX Final importados com sucesso.');
     } catch (error) { onNotify?.('error', errorMessage(error, 'Não foi possível importar o RX Final.')); }
     finally { setImporting(false); }
   };
@@ -146,21 +342,36 @@ export default function PrescricaoOculosTab({ consultation, disabled = false, on
       const item = loaded.find((current) => String(current.id) === String(savedId));
       if (item) { setEditingId(item.id); setForm(toForm(item)); }
       setSaved(true); window.setTimeout(() => setSaved(false), 3500);
+      onNotify?.('success', 'Prescrição salva com sucesso.');
     } catch (error) { onNotify?.('error', errorMessage(error, 'Não foi possível salvar a prescrição.')); }
     finally { setSaving(false); }
   };
 
-  const print = async (id) => {
-    if (!id || printingId) return;
-    const popup = window.open('', '_blank', 'width=960,height=720');
-    if (!popup) { onNotify?.('error', 'O navegador bloqueou a janela de impressão.'); return; }
-    setPrintingId(id); popup.document.write('<p style="font-family:Arial;padding:24px">Preparando impressão...</p>');
+  const handlePrintCurrent = () => {
+    if (printingId) return;
+    setPrintingId(editingId || 'current');
     try {
-      const data = await obterImpressaoPrescricao(id);
-      popup.document.open(); popup.document.write(printHtml(data, consultation)); popup.document.close(); popup.focus();
-      window.setTimeout(() => popup.print(), 250);
-    } catch (error) { popup.close(); onNotify?.('error', errorMessage(error, 'Não foi possível preparar a impressão.')); }
-    finally { setPrintingId(null); }
+      const html = generatePrescriptionHtml(form, consultation, clinicInfo);
+      printViaIframe(html);
+    } catch (error) {
+      onNotify?.('error', 'Não foi possível preparar a impressão.');
+    } finally {
+      setPrintingId(null);
+    }
+  };
+
+  const handlePrintItem = (item) => {
+    if (printingId) return;
+    setPrintingId(item.id);
+    try {
+      const formItem = toForm(item);
+      const html = generatePrescriptionHtml(formItem, consultation, clinicInfo);
+      printViaIframe(html);
+    } catch (error) {
+      onNotify?.('error', 'Não foi possível preparar a impressão.');
+    } finally {
+      setPrintingId(null);
+    }
   };
 
   const inputClass = 'clinical-input text-center font-mono font-bold min-w-20';
@@ -208,11 +419,12 @@ export default function PrescricaoOculosTab({ consultation, disabled = false, on
               </button>
               <button
                 type="button"
-                onClick={() => print(editingId)}
-                disabled={!editingId || Boolean(printingId)}
+                onClick={handlePrintCurrent}
+                disabled={disabled || loading || Boolean(printingId)}
                 className="btn-secondary py-1.5 px-3"
+                title="Imprimir prescrição atual"
               >
-                {printingId === editingId ? <Loader2 className="w-3.5 h-3.5 animate-spin text-forest-700" /> : <Printer className="w-3.5 h-3.5" />}
+                {printingId ? <Loader2 className="w-3.5 h-3.5 animate-spin text-forest-700" /> : <Printer className="w-3.5 h-3.5" />}
                 <span>Imprimir</span>
               </button>
               <button
@@ -252,22 +464,16 @@ export default function PrescricaoOculosTab({ consultation, disabled = false, on
                   onClick={() => setForm((current) => ({ ...current, modo: 'longe_perto' }))}
                   className={`px-3.5 py-1.5 text-xs font-bold rounded-lg transition-all ${form.modo === 'longe_perto' ? 'bg-forest-700 text-white shadow-hairline' : 'text-slate-600 hover:text-slate-900'}`}
                 >
-                  Longe / Perto
+                  Longe e Perto
                 </button>
               </div>
 
-              <label className="block max-w-xl">
-                <Label>Título da Prescrição</Label>
-                <input
-                  type="text"
-                  maxLength={120}
-                  value={form.titulo}
-                  onChange={(event) => setForm((current) => ({ ...current, titulo: event.target.value }))}
-                  className="clinical-input font-bold"
-                />
-              </label>
-
-              <PrescriptionGrid title="Para Longe" values={form} onChange={updateEye} inputClass={inputClass} />
+              <PrescriptionGrid
+                title="Visão de Longe"
+                values={form}
+                onChange={updateEye}
+                inputClass={inputClass}
+              />
 
               {form.modo === 'longe_perto' && (
                 <>
@@ -279,33 +485,30 @@ export default function PrescricaoOculosTab({ consultation, disabled = false, on
                       value={form.adicao}
                       onChange={(event) => setForm((current) => ({ ...current, adicao: event.target.value }))}
                       className="clinical-input font-mono font-bold"
+                      placeholder="+2.00"
                     />
                   </label>
-                  <PrescriptionGrid title="Para Perto" values={form.perto} onChange={updateNearEye} inputClass={inputClass} />
+
+                  <PrescriptionGrid
+                    title="Visão de Perto"
+                    values={form.perto}
+                    onChange={updateNearEye}
+                    inputClass={inputClass}
+                  />
                 </>
               )}
 
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5">
-                <label className="md:col-span-2">
-                  <Label>Lente recomendada</Label>
-                  <input
-                    type="text"
-                    maxLength={120}
-                    value={form.lente}
-                    onChange={(event) => setForm((current) => ({ ...current, lente: event.target.value }))}
-                    className="clinical-input font-medium"
-                  />
-                </label>
-                <label>
-                  <Label>Retorno Clínico</Label>
-                  <input
-                    type="date"
-                    value={form.retorno}
-                    onChange={(event) => setForm((current) => ({ ...current, retorno: event.target.value }))}
-                    className="clinical-input font-medium"
-                  />
-                </label>
-              </div>
+              <label className="block">
+                <Label>Lente recomendada e tratamentos</Label>
+                <input
+                  type="text"
+                  maxLength={255}
+                  value={form.lente}
+                  onChange={(event) => setForm((current) => ({ ...current, lente: event.target.value }))}
+                  className="clinical-input"
+                  placeholder="Ex.: Multifocal Digital - Antirreflexo Crizal"
+                />
+              </label>
 
               <label className="block">
                 <Label>Observações clínicas para a ótica</Label>
@@ -353,7 +556,7 @@ export default function PrescricaoOculosTab({ consultation, disabled = false, on
                       </button>
                       <button
                         type="button"
-                        onClick={() => print(item.id)}
+                        onClick={() => handlePrintItem(item)}
                         disabled={Boolean(printingId)}
                         title="Imprimir prescrição"
                         className="btn-secondary p-2"
