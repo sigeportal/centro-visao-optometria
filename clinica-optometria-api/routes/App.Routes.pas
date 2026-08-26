@@ -19,6 +19,17 @@ uses
   Consulta.Controller,
   FichaClinica.Controller,
   Dashboard.Controller,
+  Autorizacao.Controller,
+  Funcionario.Controller,
+  Catalogo.Controller,
+  Funcionario.Service,
+  Parceria.Service,
+  Procedimento.Service,
+  Autorizacao.Service,
+  FichaClinica.Service,
+  FichaClinicaDados.Service,
+  ConfiguracaoClinica.Service,
+  ConfiguracaoClinica.Controller,
   Auth.Middleware, 
   Auth.Controller;
 
@@ -32,6 +43,13 @@ type
 
 class procedure TAppRoutes.Routes;
 begin
+  TAutorizacaoService.Inicializar;
+  TFuncionarioService.Inicializar;
+  TParceriaService.Inicializar;
+  TProcedimentoService.Inicializar;
+  TFichaClinicaService.Inicializar;
+  TFichaClinicaDadosService.Inicializar;
+  TConfiguracaoClinicaService.Inicializar;
   THorse.Use(MiddlewareAuth);
 
   THorse.Get('/health',
@@ -41,10 +59,14 @@ begin
     end);
 
   TAuthController.Registrar;
+  TAutorizacaoController.Registrar;
+  TFuncionarioController.Registrar;
+  TCatalogoController.Registrar;
   TPacienteController.Registrar;
   TAgendaController.Registrar;
   TConsultaController.Registrar;
   TFichaClinicaController.Registrar;
+  TConfiguracaoClinicaController.Registrar;
   TDashboardController.Registrar;
 end;
 

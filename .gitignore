@@ -5,6 +5,8 @@ dist/
 **/dist/
 build/
 **/build/
+frontend-centro-visao - agy/
+frontend-centro-visao - Antigo/
 .firebase/
 .eslintcache
 .vite/
@@ -41,6 +43,7 @@ yarn-debug.log*
 yarn-error.log*
 firebase-debug.log*
 
+
 # OS / IDE
 .DS_Store
 Thumbs.db
@@ -48,3 +51,6 @@ Thumbs.db
 .idea/
 *.suo
 *.user
+
+# Database backups
+DADOS/backups/

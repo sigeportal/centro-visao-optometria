@@ -3,6 +3,10 @@
 > **Sistema Integrado de Gestão Clínica de Optometria**  
 > Solução completa para atendimento clínico, gestão de pacientes, agenda de consultas, anamnese, prescrição de óculos e ficha clínica personalizada.
 
+> **Versão estável:** `v1.0.0` — fluxo principal de pacientes, agenda e atendimento
+> clínico funcional. Os módulos **Financeiro** e **Relatórios** não fazem parte
+> desta versão e permanecem planejados para versões futuras.
+
 ---
 
 ## 📌 Visão Geral
@@ -33,7 +37,7 @@ O **Centro Visão Optometria** é uma plataforma moderna desenvolvida para otimi
 
 ```text
 centro-visao-optometria/
-├── frontend-clinica/         # Aplicação Web (React + Vite)
+├── frontend-centro-visao/    # Aplicação Web principal (React + Vite)
 ├── clinica-optometria-api/   # Backend REST API (Delphi + Horse)
 ├── DADOS/                    # Banco de dados Firebird (.FDB) e dados de inicialização
 ├── docs/                     # Especificações funcionais, modelos de impressão e planilhas
@@ -63,11 +67,11 @@ centro-visao-optometria/
 
 ---
 
-### 1. 💻 Executando o Frontend (`frontend-clinica`)
+### 1. 💻 Executando o Frontend (`frontend-centro-visao`)
 
 1. Acesse o diretório do frontend:
    ```bash
-   cd frontend-clinica
+   cd frontend-centro-visao
    ```
 
 2. Instale as dependências:
@@ -126,6 +130,16 @@ centro-visao-optometria/
 | `GET` | `/v1/agenda` | Listagem da agenda de atendimentos |
 | `GET` | `/v1/consultas` | Consultas clínicas cadastradas |
 | `GET` | `/v1/ficha-clinica/secoes` | Configuração das seções da ficha clínica |
+
+---
+
+## 🔐 Segurança e LGPD
+
+O plano de implementação, checklist, critérios de avaliação, decisões de risco e
+histórico de segurança são mantidos em [`docs/SEGURANCA.md`](./docs/SEGURANCA.md).
+
+Uma implementação de segurança somente é considerada concluída depois de
+documentada, avaliada e aprovada conforme o fluxo definido nesse documento.
 
 ---
 

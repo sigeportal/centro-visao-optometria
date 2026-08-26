@@ -11,11 +11,13 @@ type
 
   TPacienteService = class
   private
+    procedure GarantirRetornoTabela;
     procedure AplicarDados(APaciente: TObject; AData: TJSONObject; AAtualizacao: Boolean);
     procedure ValidarDados(AData: TJSONObject; AAtualizacao: Boolean);
     function TemDependencias(AId: Integer): Boolean;
     function DataISO(const AValor: string): TDateTime;
   public
+    constructor Create;
     function Listar(const ABusca: string; APage, ALimit: Integer): TJSONObject;
     function ObterPorId(AId: Integer): TJSONObject;
     function Criar(AData: TJSONObject): Integer;
@@ -23,6 +25,7 @@ type
     function Excluir(AId: Integer): Boolean;
     function ListarAnamneses(APacienteId: Integer): TJSONArray;
     function ListarConsultas(APacienteId: Integer): TJSONArray;
+    function ListarRetornos(APacienteId: Integer): TJSONArray;
     function ListarFinanceiro(APacienteId: Integer): TJSONArray;
     function ListarDocumentos(APacienteId: Integer): TJSONArray;
   end;
@@ -36,6 +39,24 @@ uses
   UnitDatabase,
   Models.Clinica,
   Dataset.JSON.Utils;
+
+constructor TPacienteService.Create;
+begin
+  inherited Create;
+  GarantirRetornoTabela;
+end;
+
+procedure TPacienteService.GarantirRetornoTabela;
+var
+  LRetorno: TModelRetornoConsulta;
+begin
+  LRetorno := TModelRetornoConsulta.Create(TDatabase.Connection);
+  try
+    LRetorno.CriaTabela;
+  finally
+    LRetorno.Free;
+  end;
+end;
 
 function ApenasDigitos(const AValor: string): string;
 var
@@ -363,9 +384,13 @@ begin
     try
       LQuery.Connection := LConn;
       LQuery.SQL.Text :=
-        'SELECT A.ANA_ID AS ID, A.ANA_DATA AS DATA, A.ANA_DATA AS CRIADO_EM, ' +
-        ''''' AS PROFISSIONAL, A.ANA_QUEIXA_PRINCIPAL AS QUEIXA_PRINCIPAL, ' +
-        'A.ANA_HISTORICO AS HISTORICO, A.ANA_OBSERVACOES AS OBSERVACOES ' +
+        'SELECT A.ANA_ID AS ID, A.ANA_CONSULTA_ID AS CONSULTA_ID, ' +
+        'A.ANA_DATA AS DATA, A.ANA_DATA AS CRIADO_EM, C.CON_STATUS AS CONSULTA_STATUS, ' +
+        'C.CON_PROFISSIONAL AS PROFISSIONAL, ' +
+        'A.ANA_MOTIVO_PRINCIPAL AS MOTIVO_PRINCIPAL, ' +
+        'A.ANA_MOTIVO_PRINCIPAL AS QUEIXA_PRINCIPAL, ' +
+        'A.ANA_OBSERVACOES_GERAIS AS HISTORICO, ' +
+        'A.ANA_OBSERVACOES_FINAIS AS OBSERVACOES ' +
         'FROM ANAMNESES A ' +
         'JOIN CONSULTAS C ON C.CON_ID = A.ANA_CONSULTA_ID ' +
         'WHERE C.CON_PACIENTE_ID = :PACIENTE_ID ' +
@@ -394,9 +419,56 @@ begin
     try
       LQuery.Connection := LConn;
       LQuery.SQL.Text :=
-        'SELECT CON_ID AS ID, CON_DATA AS DATA, CON_DATA AS CRIADO_EM, ' +
-        ''''' AS PROFISSIONAL, CON_PROCEDIMENTO AS PROCEDIMENTO, CON_STATUS AS STATUS ' +
+        'SELECT CON_ID AS ID, CON_PACIENTE_ID AS PACIENTE_ID, CON_AGENDAMENTO_ID AS AGENDAMENTO_ID, ' +
+        'CON_DATA AS DATA, CON_FINALIZADA_EM AS FINALIZADA_EM, CON_PROFISSIONAL AS PROFISSIONAL, ' +
+        'CON_PROCEDIMENTO AS PROCEDIMENTO, CON_STATUS AS STATUS ' +
         'FROM CONSULTAS WHERE CON_PACIENTE_ID = :PACIENTE_ID ORDER BY CON_DATA DESC';
+      LQuery.ParamByName('PACIENTE_ID').AsInteger := APacienteId;
+      LQuery.Open;
+      Result := TDatasetJsonUtils.QueryToJSONArray(LQuery);
+    finally
+      LQuery.Free;
+    end;
+  finally
+    TDatabase.Connection.Disconnected(LIndiceConexao);
+  end;
+end;
+
+function TPacienteService.ListarRetornos(APacienteId: Integer): TJSONArray;
+var
+  LQuery: TFDQuery;
+  LIndiceConexao: Integer;
+  LConn: TFDConnection;
+begin
+  if APacienteId <= 0 then
+    raise EPacienteValidacao.Create('Paciente invalido');
+
+  LIndiceConexao := TDatabase.Connection.Connected;
+  try
+    LConn := TFDConnection(TDatabase.Connection.GetListaConexoes[LIndiceConexao]);
+    LQuery := TFDQuery.Create(nil);
+    try
+      LQuery.Connection := LConn;
+      LQuery.SQL.Text :=
+        'SELECT R.RET_ID AS ID, R.RET_CONSULTA_ID AS CONSULTA_ID, ' +
+        'C.CON_PACIENTE_ID AS PACIENTE_ID, P.PAC_NOME AS PACIENTE_NOME, C.CON_DATA AS CONSULTA_DATA, ' +
+        'C.CON_PROFISSIONAL AS PROFISSIONAL, C.CON_PROCEDIMENTO AS PROCEDIMENTO, ' +
+        'C.CON_STATUS AS CONSULTA_STATUS, ' +
+        'CASE WHEN R.RET_TIPO IN (''sem_retorno'', ''conforme_necessidade'') THEN ''sem_retorno'' ' +
+        'WHEN R.RET_SITUACAO IS NULL OR R.RET_SITUACAO = '''' THEN ''retorno_programado'' ' +
+        'ELSE R.RET_SITUACAO END AS SITUACAO, ' +
+        'R.RET_TIPO AS TIPO, R.RET_DATA AS DATA_RETORNO, ' +
+        'R.RET_MOTIVO AS MOTIVO, R.RET_OBSERVACAO AS OBSERVACAO, ' +
+        'R.RET_CRIADO_POR AS CRIADO_POR, R.RET_CRIADO_EM AS CRIADO_EM, ' +
+        'R.RET_ATUALIZADO_POR AS ATUALIZADO_POR, R.RET_ATUALIZADO_EM AS ATUALIZADO_EM, ' +
+        'UC.USU_LOGIN AS CRIADO_POR_LOGIN, UA.USU_LOGIN AS ATUALIZADO_POR_LOGIN ' +
+        'FROM RETORNOS_CONSULTA R ' +
+        'JOIN CONSULTAS C ON C.CON_ID = R.RET_CONSULTA_ID ' +
+        'JOIN PACIENTES P ON P.PAC_ID = C.CON_PACIENTE_ID ' +
+        'LEFT JOIN USUARIOS UC ON UC.USU_CODIGO = R.RET_CRIADO_POR ' +
+        'LEFT JOIN USUARIOS UA ON UA.USU_CODIGO = R.RET_ATUALIZADO_POR ' +
+        'WHERE C.CON_PACIENTE_ID = :PACIENTE_ID ' +
+        'ORDER BY COALESCE(CAST(R.RET_DATA AS TIMESTAMP), C.CON_DATA) DESC, R.RET_ID DESC';
       LQuery.ParamByName('PACIENTE_ID').AsInteger := APacienteId;
       LQuery.Open;
       Result := TDatasetJsonUtils.QueryToJSONArray(LQuery);
@@ -459,8 +531,12 @@ begin
       LQuery.Connection := LConn;
       LQuery.SQL.Text :=
         'SELECT C.CON_ID AS CONSULTA_ID, C.CON_DATA AS CONSULTA_DATA, D.DOC_ID AS ID, ' +
-        'D.DOC_TIPO AS TIPO, D.DOC_NOME_ARQUIVO AS NOME, D.DOC_CAMINHO_ARQUIVO AS URL, ' +
-        'D.DOC_MIME_TYPE AS MIME_TYPE, D.DOC_DATA_UPLOAD AS DATA_UPLOAD ' +
+        'C.CON_PROFISSIONAL AS PROFISSIONAL, C.CON_STATUS AS CONSULTA_STATUS, ' +
+        'D.DOC_TIPO AS TIPO, D.DOC_TITULO AS TITULO, ' +
+        'D.DOC_NOME_ARQUIVO AS NOME, D.DOC_CAMINHO_ARQUIVO AS URL, ' +
+        'D.DOC_MIME_TYPE AS MIME_TYPE, D.DOC_DATA_UPLOAD AS DATA_UPLOAD, ' +
+        'D.DOC_STATUS AS STATUS, COALESCE(D.DOC_VERSAO, 1) AS VERSAO, ' +
+        'COALESCE(D.DOC_ATUALIZADO_EM, D.DOC_EMITIDO_EM, D.DOC_DATA_UPLOAD) AS ATUALIZADO_EM ' +
         'FROM CONSULTAS C ' +
         'JOIN DOCUMENTOS_CONSULTA D ON D.DOC_CONSULTA_ID = C.CON_ID ' +
         'WHERE C.CON_PACIENTE_ID = :PACIENTE_ID ' +
@@ -478,6 +554,8 @@ begin
           LGrupo.AddPair('consulta_id', TJSONNumber.Create(LConsultaId));
           LGrupo.AddPair('consulta_data', LQuery.FieldByName('CONSULTA_DATA').AsString);
           LGrupo.AddPair('data', LQuery.FieldByName('CONSULTA_DATA').AsString);
+          LGrupo.AddPair('profissional', LQuery.FieldByName('PROFISSIONAL').AsString);
+          LGrupo.AddPair('consulta_status', LQuery.FieldByName('CONSULTA_STATUS').AsString);
           LGrupo.AddPair('documentos', LDocs);
           Result.AddElement(LGrupo);
         end;
@@ -485,10 +563,16 @@ begin
         LDoc := TJSONObject.Create;
         LDoc.AddPair('id', TJSONNumber.Create(LQuery.FieldByName('ID').AsInteger));
         LDoc.AddPair('tipo', LQuery.FieldByName('TIPO').AsString);
+        LDoc.AddPair('titulo', LQuery.FieldByName('TITULO').AsString);
         LDoc.AddPair('nome', LQuery.FieldByName('NOME').AsString);
         LDoc.AddPair('url', LQuery.FieldByName('URL').AsString);
         LDoc.AddPair('mime_type', LQuery.FieldByName('MIME_TYPE').AsString);
         LDoc.AddPair('data_upload', LQuery.FieldByName('DATA_UPLOAD').AsString);
+        LDoc.AddPair('atualizado_em', LQuery.FieldByName('ATUALIZADO_EM').AsString);
+        LDoc.AddPair('status', LQuery.FieldByName('STATUS').AsString);
+        LDoc.AddPair('versao', TJSONNumber.Create(LQuery.FieldByName('VERSAO').AsInteger));
+        LDoc.AddPair('anexo', TJSONBool.Create(
+          SameText(Trim(LQuery.FieldByName('TIPO').AsString), 'anexo')));
         LDocs.AddElement(LDoc);
         LQuery.Next;
       end;

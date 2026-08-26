@@ -17,7 +17,11 @@ type
     class procedure Excluir(Req: THorseRequest; Res: THorseResponse; Next: TProc);
     class procedure Cancelar(Req: THorseRequest; Res: THorseResponse; Next: TProc);
     class procedure FilaEspera(Req: THorseRequest; Res: THorseResponse; Next: TProc);
+    class procedure ListarProfissionais(Req: THorseRequest; Res: THorseResponse; Next: TProc);
+    class procedure ListarParcerias(Req: THorseRequest; Res: THorseResponse; Next: TProc);
+    class procedure ListarProcedimentos(Req: THorseRequest; Res: THorseResponse; Next: TProc);
     class procedure LancarPagamento(Req: THorseRequest; Res: THorseResponse; Next: TProc);
+    class procedure IniciarAtendimento(Req: THorseRequest; Res: THorseResponse; Next: TProc);
   end;
 
   TAgendaRequest = class
@@ -90,7 +94,10 @@ uses
   System.JSON,
   Horse.Commons,
   Horse.GBSwagger,
+  Autorizacao.Middleware,
+  Autorizacao.Service,
   Agenda.Service,
+  Atendimento.Service,
   Response.Utils,
   Logger.Utils;
 
@@ -119,15 +126,126 @@ end;
 
 class procedure TAgendaController.Registrar;
 begin
-  THorse.Group.Prefix('/v1/agenda').Get('', Listar);
-  THorse.Group.Prefix('/v1/agenda').Post('', Criar);
-  THorse.Group.Prefix('/v1/agenda').Get('/fila-espera', FilaEspera);
-  THorse.Group.Prefix('/v1/agenda').Get('/:id', ObterPorId);
-  THorse.Group.Prefix('/v1/agenda').Put('/:id', Atualizar);
-  THorse.Group.Prefix('/v1/agenda').Patch('/:id/status', AlterarStatus);
-  THorse.Group.Prefix('/v1/agenda').Delete('/:id', Excluir);
-  THorse.Group.Prefix('/v1/agenda').Post('/:id/cancelar', Cancelar);
-  THorse.Group.Prefix('/v1/agenda').Post('/:id/lancar-pagamento', LancarPagamento);
+  THorse.Group.Prefix('/v1/agenda').Get('', AutorizarRota(PERM_AGENDA_CONSULTAR, Listar));
+  THorse.Group.Prefix('/v1/agenda').Post('', AutorizarRota(PERM_AGENDA_ALTERAR, Criar));
+  THorse.Group.Prefix('/v1/agenda').Get('/fila-espera', AutorizarRota(PERM_AGENDA_CONSULTAR, FilaEspera));
+  THorse.Group.Prefix('/v1/agenda').Get('/profissionais', AutorizarRota(PERM_AGENDA_CONSULTAR, ListarProfissionais));
+  THorse.Group.Prefix('/v1/agenda').Get('/parcerias', AutorizarRota(PERM_AGENDA_CONSULTAR, ListarParcerias));
+  THorse.Group.Prefix('/v1/agenda').Get('/procedimentos', AutorizarRota(PERM_AGENDA_CONSULTAR, ListarProcedimentos));
+  THorse.Group.Prefix('/v1/agenda').Get('/:id', AutorizarRota(PERM_AGENDA_CONSULTAR, ObterPorId));
+  THorse.Group.Prefix('/v1/agenda').Put('/:id', AutorizarRota(PERM_AGENDA_ALTERAR, Atualizar));
+  THorse.Group.Prefix('/v1/agenda').Patch('/:id/status', AutorizarRota(PERM_AGENDA_ALTERAR, AlterarStatus));
+  THorse.Group.Prefix('/v1/agenda').Delete('/:id', AutorizarRota(PERM_AGENDA_ALTERAR, Excluir));
+  THorse.Group.Prefix('/v1/agenda').Post('/:id/cancelar', AutorizarRota(PERM_AGENDA_ALTERAR, Cancelar));
+  THorse.Group.Prefix('/v1/agenda').Post('/:id/lancar-pagamento', AutorizarRota(PERM_FINANCEIRO_LANCAR, LancarPagamento));
+  THorse.Group.Prefix('/v1/agenda').Post('/:id/iniciar-atendimento', AutorizarRota(PERM_CLINICO_ALTERAR, IniciarAtendimento));
+end;
+
+class procedure TAgendaController.ListarParcerias(Req: THorseRequest; Res: THorseResponse; Next: TProc);
+var
+  Service: TAgendaService;
+begin
+  Service := TAgendaService.Create;
+  try
+    try
+      Res.Send<TJSONObject>(
+        TResponseUtils.Success('Parcerias listadas com sucesso', Service.ListarParcerias)
+      ).Status(THTTPStatus.OK);
+    except
+      on E: Exception do
+      begin
+        TLogger.Error('AgendaController.ListarParcerias', E);
+        Res.Send<TJSONObject>(TResponseUtils.InternalError(E.Message))
+          .Status(THTTPStatus.InternalServerError);
+      end;
+    end;
+  finally
+    Service.Free;
+  end;
+end;
+
+class procedure TAgendaController.ListarProcedimentos(Req: THorseRequest; Res: THorseResponse; Next: TProc);
+var
+  Service: TAgendaService;
+begin
+  Service := TAgendaService.Create;
+  try
+    try
+      Res.Send<TJSONObject>(
+        TResponseUtils.Success('Procedimentos listados com sucesso', Service.ListarProcedimentos)
+      ).Status(THTTPStatus.OK);
+    except
+      on E: Exception do
+      begin
+        TLogger.Error('AgendaController.ListarProcedimentos', E);
+        Res.Send<TJSONObject>(TResponseUtils.InternalError(E.Message))
+          .Status(THTTPStatus.InternalServerError);
+      end;
+    end;
+  finally
+    Service.Free;
+  end;
+end;
+
+class procedure TAgendaController.IniciarAtendimento(Req: THorseRequest; Res: THorseResponse; Next: TProc);
+var
+  Service: TAtendimentoService;
+  LData: TJSONObject;
+  LAgendamentoId: Integer;
+  LConsultaId: Integer;
+  LStatus: string;
+begin
+  Service := TAtendimentoService.Create;
+  try
+    try
+      LAgendamentoId := ParamId(Req);
+      LConsultaId := Service.Iniciar(LAgendamentoId, LStatus);
+
+      LData := TJSONObject.Create;
+      LData.AddPair('agendamento_id', TJSONNumber.Create(LAgendamentoId));
+      LData.AddPair('consulta_id', TJSONNumber.Create(LConsultaId));
+      LData.AddPair('status', LStatus);
+      Res.Send<TJSONObject>(
+        TResponseUtils.Success('Atendimento iniciado com sucesso', LData)
+      ).Status(THTTPStatus.OK);
+    except
+      on E: EAtendimentoNaoEncontrado do
+        Res.Send<TJSONObject>(TResponseUtils.NotFound(E.Message)).Status(THTTPStatus.NotFound);
+      on E: EAtendimentoValidacao do
+        EnviarValidacao(Res, E.Message);
+      on E: Exception do
+      begin
+        TLogger.Error('AgendaController.IniciarAtendimento', E);
+        Res.Send<TJSONObject>(TResponseUtils.InternalError(E.Message))
+          .Status(THTTPStatus.InternalServerError);
+      end;
+    end;
+  finally
+    Service.Free;
+  end;
+end;
+
+class procedure TAgendaController.ListarProfissionais(Req: THorseRequest; Res: THorseResponse; Next: TProc);
+var
+  Service: TAgendaService;
+begin
+  Service := TAgendaService.Create;
+  try
+    try
+      Res.Send<TJSONObject>(
+        TResponseUtils.Success('Profissionais listados com sucesso', Service.ListarProfissionais)
+      ).Status(THTTPStatus.OK);
+    except
+      on E: Exception do
+      begin
+        TLogger.Error('AgendaController.ListarProfissionais', E);
+        Res.Send<TJSONObject>(TResponseUtils.InternalError(E.Message))
+          .Status(THTTPStatus.InternalServerError);
+      end;
+    end;
+  finally
+    Service.Free;
+  end;
 end;
 
 class procedure TAgendaController.Listar(Req: THorseRequest; Res: THorseResponse; Next: TProc);
@@ -474,6 +592,35 @@ initialization
           .Required(True)
         .&End
         .AddResponse(201, 'Lancamento financeiro criado com sucesso').&End
+      .&End
+    .&End
+    .Path('agenda/profissionais')
+      .Tag('Agenda')
+      .GET('Listar profissionais', 'Retorna funcionarios ativos disponiveis para agendamento')
+        .AddResponse(200, 'Profissionais listados com sucesso').&End
+      .&End
+    .&End
+    .Path('agenda/parcerias')
+      .Tag('Agenda')
+      .GET('Listar parcerias', 'Retorna parcerias ativas disponiveis para agendamento')
+        .AddResponse(200, 'Parcerias listadas com sucesso').&End
+      .&End
+    .&End
+    .Path('agenda/procedimentos')
+      .Tag('Agenda')
+      .GET('Listar procedimentos', 'Retorna procedimentos ativos disponiveis para agendamento')
+        .AddResponse(200, 'Procedimentos listados com sucesso').&End
+      .&End
+    .&End
+    .Path('agenda/{id}/iniciar-atendimento')
+      .Tag('Agenda')
+      .POST('Iniciar atendimento', 'Cria ou retorna a consulta vinculada e sincroniza a agenda')
+        .AddParamPath('id', 'Identificador numerico do agendamento')
+          .Required(True)
+        .&End
+        .AddResponse(200, 'Atendimento iniciado com sucesso').&End
+        .AddResponse(404, 'Agendamento nao encontrado').&End
+        .AddResponse(422, 'Agendamento nao pode iniciar atendimento').&End
       .&End
     .&End;
 

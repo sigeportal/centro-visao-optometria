@@ -8,7 +8,7 @@
         <AppType>Console</AppType>
         <FrameworkType>None</FrameworkType>
         <ProjectVersion>18.4</ProjectVersion>
-        <Platform Condition="'$(Platform)'==''">Linux64</Platform>
+        <Platform Condition="'$(Platform)'==''">Win32</Platform>
     </PropertyGroup>
     <PropertyGroup Condition="'$(Config)'=='Base' or '$(Base)'!=''">
         <Base>true</Base>
@@ -53,16 +53,17 @@
         <DCC_Namespace>System;Xml;Data;Datasnap;Web;Soap;$(DCC_Namespace)</DCC_Namespace>
         <Icon_MainIcon>$(BDS)\bin\delphi_PROJECTICON.ico</Icon_MainIcon>
         <Icns_MainIcns>$(BDS)\bin\delphi_PROJECTICNS.icns</Icns_MainIcns>
-        <DCC_UnitSearchPath>modules\.dcp;modules\.dcu;modules;modules\clientrest\src;modules\delphi-jose-jwt\Source\Common;modules\delphi-jose-jwt\Source\JOSE;modules\delphi-jose-jwt\Source;modules\factory-connections\src\FireDAC;modules\factory-connections\src\IBExpress;modules\factory-connections\src;modules\gbswagger\Source\Core;modules\gbswagger\Source\Datasnap;modules\gbswagger\Source\Horse;modules\gbswagger\Source\Validator;modules\handle-exception\src;modules\hashlib4pascal\HashLib\src\Base;modules\hashlib4pascal\HashLib\src\Checksum;modules\hashlib4pascal\HashLib\src\Crypto\Blake2BParams;modules\hashlib4pascal\HashLib\src\Crypto\Blake2SParams;modules\hashlib4pascal\HashLib\src\Crypto;modules\hashlib4pascal\HashLib\src\Hash128;modules\hashlib4pascal\HashLib\src\Hash32;modules\hashlib4pascal\HashLib\src\Hash64;modules\hashlib4pascal\HashLib\src\Include;modules\hashlib4pascal\HashLib\src\Interfaces;modules\hashlib4pascal\HashLib\src\Interfaces\IBlake2BParams;modules\hashlib4pascal\HashLib\src\Interfaces\IBlake2SParams;modules\hashlib4pascal\HashLib\src\KDF;modules\hashlib4pascal\HashLib\src\NullDigest;modules\hashlib4pascal\HashLib\src\Nullable;modules\hashlib4pascal\HashLib\src\Packages\FPC;modules\hashlib4pascal\HashLib\src\Utils;modules\hashlib4pascal\HashLib.Benchmark\src\Core;modules\hashlib4pascal\HashLib.Benchmark\src\Forms\FMX;modules\hashlib4pascal\HashLib.Tests\src;modules\horse\src;modules\horse-cors\src;modules\horse-jwt\src;modules\horse-logger\src;modules\horse-logger-provider-console\src;modules\horse-utils-clientip\src;modules\jhonson\src;modules\portalorm\src\Model;modules\portalorm\src\Modulos\FormRTTI\Model;modules\portalorm\src\Modulos\FormRTTI;modules\portalorm\src\Modulos\Helpers;modules\portalorm\src\Modulos\InsereTabela;modules\portalorm\src\Modulos\PatternCommand;modules\portalorm\src\Utils;modules\portalorm\src\views;$(DCC_UnitSearchPath)</DCC_UnitSearchPath>
+        <DCC_UnitSearchPath>modules\.dcp;..\modules\.dcp;modules\.dcu;..\modules\.dcu;modules;..\modules;modules\clientrest\src;..\modules\clientrest\src;modules\delphi-jose-jwt\Source\Common;..\modules\delphi-jose-jwt\Source\Common;modules\delphi-jose-jwt\Source\JOSE;..\modules\delphi-jose-jwt\Source\JOSE;modules\delphi-jose-jwt\Source;..\modules\delphi-jose-jwt\Source;modules\factory-connections\src\FireDAC;..\modules\factory-connections\src\FireDAC;modules\factory-connections\src\IBExpress;..\modules\factory-connections\src\IBExpress;modules\factory-connections\src;..\modules\factory-connections\src;modules\gbswagger\Source\Core;..\modules\gbswagger\Source\Core;modules\gbswagger\Source\Datasnap;..\modules\gbswagger\Source\Datasnap;modules\gbswagger\Source\Horse;..\modules\gbswagger\Source\Horse;modules\gbswagger\Source\Validator;..\modules\gbswagger\Source\Validator;modules\handle-exception\src;..\modules\handle-exception\src;modules\hashlib4pascal\HashLib\src\Base;..\modules\hashlib4pascal\HashLib\src\Base;modules\hashlib4pascal\HashLib\src\Checksum;..\modules\hashlib4pascal\HashLib\src\Checksum;modules\hashlib4pascal\HashLib\src\Crypto\Blake2BParams;..\modules\hashlib4pascal\HashLib\src\Crypto\Blake2BParams;modules\hashlib4pascal\HashLib\src\Crypto\Blake2SParams;..\modules\hashlib4pascal\HashLib\src\Crypto\Blake2SParams;modules\hashlib4pascal\HashLib\src\Crypto;..\modules\hashlib4pascal\HashLib\src\Crypto;modules\hashlib4pascal\HashLib\src\Hash128;..\modules\hashlib4pascal\HashLib\src\Hash128;modules\hashlib4pascal\HashLib\src\Hash32;..\modules\hashlib4pascal\HashLib\src\Hash32;modules\hashlib4pascal\HashLib\src\Hash64;..\modules\hashlib4pascal\HashLib\src\Hash64;modules\hashlib4pascal\HashLib\src\Include;..\modules\hashlib4pascal\HashLib\src\Include;modules\hashlib4pascal\HashLib\src\Interfaces;..\modules\hashlib4pascal\HashLib\src\Interfaces;modules\hashlib4pascal\HashLib\src\Interfaces\IBlake2BParams;..\modules\hashlib4pascal\HashLib\src\Interfaces\IBlake2BParams;modules\hashlib4pascal\HashLib\src\Interfaces\IBlake2SParams;..\modules\hashlib4pascal\HashLib\src\Interfaces\IBlake2SParams;modules\hashlib4pascal\HashLib\src\KDF;..\modules\hashlib4pascal\HashLib\src\KDF;modules\hashlib4pascal\HashLib\src\NullDigest;..\modules\hashlib4pascal\HashLib\src\NullDigest;modules\hashlib4pascal\HashLib\src\Nullable;..\modules\hashlib4pascal\HashLib\src\Nullable;modules\hashlib4pascal\HashLib\src\Packages\FPC;..\modules\hashlib4pascal\HashLib\src\Packages\FPC;modules\hashlib4pascal\HashLib\src\Utils;..\modules\hashlib4pascal\HashLib\src\Utils;modules\hashlib4pascal\HashLib.Benchmark\src\Core;..\modules\hashlib4pascal\HashLib.Benchmark\src\Core;modules\hashlib4pascal\HashLib.Benchmark\src\Forms\FMX;..\modules\hashlib4pascal\HashLib.Benchmark\src\Forms\FMX;modules\hashlib4pascal\HashLib.Tests\src;..\modules\hashlib4pascal\HashLib.Tests\src;modules\horse\src;..\modules\horse\src;modules\horse-cors\src;..\modules\horse-cors\src;modules\horse-jwt\src;..\modules\horse-jwt\src;modules\horse-logger\src;..\modules\horse-logger\src;modules\horse-logger-provider-console\src;..\modules\horse-logger-provider-console\src;modules\horse-utils-clientip\src;..\modules\horse-utils-clientip\src;modules\jhonson\src;..\modules\jhonson\src;modules\portalorm\src\Model;..\modules\portalorm\src\Model;modules\portalorm\src\Modulos\FormRTTI\Model;..\modules\portalorm\src\Modulos\FormRTTI\Model;modules\portalorm\src\Modulos\FormRTTI;..\modules\portalorm\src\Modulos\FormRTTI;modules\portalorm\src\Modulos\Helpers;..\modules\portalorm\src\Modulos\Helpers;modules\portalorm\src\Modulos\InsereTabela;..\modules\portalorm\src\Modulos\InsereTabela;modules\portalorm\src\Modulos\PatternCommand;..\modules\portalorm\src\Modulos\PatternCommand;modules\portalorm\src\Utils;..\modules\portalorm\src\Utils;modules\portalorm\src\views;..\modules\portalorm\src\views;$(DCC_UnitSearchPath)</DCC_UnitSearchPath>
     </PropertyGroup>
     <PropertyGroup Condition="'$(Base_Win32)'!=''">
         <DCC_Namespace>Winapi;System.Win;Data.Win;Datasnap.Win;Web.Win;Soap.Win;Xml.Win;Bde;$(DCC_Namespace)</DCC_Namespace>
+        <DCC_UnitSearchPath>Model;services;Controllers;middlewares;routes;utils;$(DCC_UnitSearchPath)</DCC_UnitSearchPath>
         <BT_BuildType>Debug</BT_BuildType>
         <VerInfo_Keys>CompanyName=;FileDescription=$(MSBuildProjectName);FileVersion=1.0.0.0;InternalName=;LegalCopyright=;LegalTrademarks=;OriginalFilename=;ProductName=$(MSBuildProjectName);ProductVersion=1.0.0.0;Comments=;ProgramID=com.embarcadero.$(MSBuildProjectName)</VerInfo_Keys>
         <VerInfo_Locale>1033</VerInfo_Locale>
     </PropertyGroup>
     <PropertyGroup Condition="'$(Cfg_1)'!=''">
-        <DCC_Define>RELEASE;$(DCC_Define)</DCC_Define>
+        <DCC_Define>RELEASE;PORTALORM;$(DCC_Define)</DCC_Define>
         <DCC_DebugInformation>0</DCC_DebugInformation>
         <DCC_LocalDebugSymbols>false</DCC_LocalDebugSymbols>
         <DCC_SymbolReferenceInfo>0</DCC_SymbolReferenceInfo>
@@ -83,44 +84,61 @@
         <VerInfo_Locale>1033</VerInfo_Locale>
         <VerInfo_Keys>CompanyName=;FileDescription=$(MSBuildProjectName);FileVersion=1.0.0.0;InternalName=;LegalCopyright=;LegalTrademarks=;OriginalFilename=;ProductName=$(MSBuildProjectName);ProductVersion=1.0.0.0;Comments=;ProgramID=com.embarcadero.$(MSBuildProjectName)</VerInfo_Keys>
         <Manifest_File>(None)</Manifest_File>
+        <Debugger_IncludeSystemVars>true</Debugger_IncludeSystemVars>
+        <Debugger_EnvVars>CAMINHO_BD=F:\Projetos\centro-visao-optometria\DADOS\PRINCIPAL.FDB;$(Debugger_EnvVars)</Debugger_EnvVars>
     </PropertyGroup>
     <ItemGroup>
         <DelphiCompile Include="$(MainSource)">
             <MainSource>MainSource</MainSource>
         </DelphiCompile>
         <DCCReference Include="routes\App.Routes.pas"/>
-        <DCCReference Include="..\..\..\FormsComuns\Classes\ServidoresUtils\Database\UnitDatabase.pas"/>
-        <DCCReference Include="..\..\..\FormsComuns\Classes\ServidoresUtils\Utils\UnitConstants.pas"/>
-        <DCCReference Include="..\..\..\FormsComuns\Classes\ServidoresUtils\Middlewares\Auth.Middleware.pas"/>
+        <DCCReference Include="..\..\FormsComuns\Classes\ServidoresUtils\Database\UnitDatabase.pas"/>
+        <DCCReference Include="..\..\FormsComuns\Classes\ServidoresUtils\Utils\UnitConstants.pas"/>
+        <DCCReference Include="..\..\FormsComuns\Classes\ServidoresUtils\Middlewares\Auth.Middleware.pas"/>
+        <DCCReference Include="middlewares\Autorizacao.Middleware.pas"/>
+        <DCCReference Include="Controllers\Autorizacao.Controller.pas"/>
+        <DCCReference Include="Controllers\Funcionario.Controller.pas"/>
+        <DCCReference Include="Controllers\Catalogo.Controller.pas"/>
         <DCCReference Include="Controllers\Agenda.Controller.pas"/>
         <DCCReference Include="Controllers\Consulta.Controller.pas"/>
         <DCCReference Include="Controllers\FichaClinica.Controller.pas"/>
         <DCCReference Include="Controllers\Dashboard.Controller.pas"/>
         <DCCReference Include="Controllers\Paciente.Controller.pas"/>
         <DCCReference Include="services\Agenda.Service.pas"/>
+        <DCCReference Include="services\Atendimento.Service.pas"/>
         <DCCReference Include="services\Consulta.Service.pas"/>
         <DCCReference Include="services\FichaClinica.Service.pas"/>
+        <DCCReference Include="services\FichaClinicaDados.Service.pas"/>
         <DCCReference Include="services\Dashboard.Service.pas"/>
         <DCCReference Include="services\Paciente.Service.pas"/>
+        <DCCReference Include="services\Autorizacao.Service.pas"/>
+        <DCCReference Include="services\Funcionario.Service.pas"/>
+        <DCCReference Include="services\Parceria.Service.pas"/>
+        <DCCReference Include="services\Procedimento.Service.pas"/>
         <DCCReference Include="Model\Models.Clinica.pas"/>
         <DCCReference Include="Model\UnitAgendamento.Model.pas"/>
         <DCCReference Include="Model\UnitAnamnese.Model.pas"/>
         <DCCReference Include="Model\UnitConsulta.Model.pas"/>
         <DCCReference Include="Model\UnitDocumentoConsulta.Model.pas"/>
         <DCCReference Include="Model\UnitFichaSecao.Model.pas"/>
+        <DCCReference Include="Model\UnitFichaClinicaDados.Model.pas"/>
         <DCCReference Include="Model\UnitFinanceiroLancamento.Model.pas"/>
         <DCCReference Include="Model\UnitPaciente.Model.pas"/>
         <DCCReference Include="Model\UnitPrescricao.Model.pas"/>
+        <DCCReference Include="Model\UnitRetornoConsulta.Model.pas"/>
+        <DCCReference Include="Model\UnitUsuarioPerfil.Model.pas"/>
+        <DCCReference Include="Model\UnitParceria.Model.pas"/>
+        <DCCReference Include="Model\UnitProcedimento.Model.pas"/>
         <DCCReference Include="utils\Dataset.JSON.Utils.pas"/>
-        <DCCReference Include="..\..\..\FormsComuns\Classes\ServidoresUtils\Utils\UnitFunctions.pas"/>
-        <DCCReference Include="..\..\..\FormsComuns\Classes\ServidoresUtils\Services\Auth.Service.pas"/>
-        <DCCReference Include="..\..\..\FormsComuns\Classes\Usuarios\Model\UnitUsuarios.Model.pas"/>
-        <DCCReference Include="..\..\..\FormsComuns\Classes\Permissoes\Model\UnitPermissoes.Model.pas"/>
+        <DCCReference Include="..\..\FormsComuns\Classes\ServidoresUtils\Utils\UnitFunctions.pas"/>
+        <DCCReference Include="..\..\FormsComuns\Classes\ServidoresUtils\Services\Auth.Service.pas"/>
+        <DCCReference Include="..\..\FormsComuns\Classes\Usuarios\Model\UnitUsuarios.Model.pas"/>
+        <DCCReference Include="..\..\FormsComuns\Classes\Permissoes\Model\UnitPermissoes.Model.pas"/>
         <DCCReference Include="Model\UnitFuncionarios.Model.pas"/>
-        <DCCReference Include="..\..\..\FormsComuns\Classes\ServidoresUtils\security\JWT.Utils.pas"/>
-        <DCCReference Include="..\..\..\FormsComuns\Classes\ServidoresUtils\Controllers\Auth.Controller.pas"/>
-        <DCCReference Include="..\..\..\FormsComuns\Classes\ServidoresUtils\Utils\Logger.Utils.pas"/>
-        <DCCReference Include="..\..\..\FormsComuns\Classes\ServidoresUtils\Utils\Response.Utils.pas"/>
+        <DCCReference Include="..\..\FormsComuns\Classes\ServidoresUtils\security\JWT.Utils.pas"/>
+        <DCCReference Include="..\..\FormsComuns\Classes\ServidoresUtils\Controllers\Auth.Controller.pas"/>
+        <DCCReference Include="..\..\FormsComuns\Classes\ServidoresUtils\Utils\Logger.Utils.pas"/>
+        <DCCReference Include="..\..\FormsComuns\Classes\ServidoresUtils\Utils\Response.Utils.pas"/>
         <BuildConfiguration Include="Debug">
             <Key>Cfg_2</Key>
             <CfgParent>Base</CfgParent>
@@ -173,7 +191,7 @@
                         <Overwrite>true</Overwrite>
                     </Platform>
                 </DeployFile>
-                <DeployFile LocalName="ClinicaOptometria" Configuration="Debug" Class="ProjectOutput">
+                <DeployFile LocalName="dist\ClinicaOptometria" Configuration="Debug" Class="ProjectOutput">
                     <Platform Name="Linux64">
                         <RemoteName>ClinicaOptometria</RemoteName>
                         <Overwrite>true</Overwrite>

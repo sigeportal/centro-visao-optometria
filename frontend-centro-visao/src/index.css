@@ -1,0 +1,166 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    scroll-behavior: smooth;
+    -webkit-tap-highlight-color: transparent;
+  }
+  body {
+    @apply bg-[#f8faf9] text-slate-800 font-sans antialiased selection:bg-forest-800 selection:text-white;
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  }
+}
+
+/* Custom Scrollbars */
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+
+::-webkit-scrollbar-track {
+  background: #f1f5f3;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #cbd5cf;
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #059669;
+}
+
+@layer components {
+  /* Healthcare Premium Panels & Cards */
+  .clinical-panel {
+    @apply bg-white border border-slate-200/80 rounded-2xl shadow-card transition-all duration-150;
+  }
+
+  .clinical-panel-hover {
+    @apply bg-white border border-slate-200/80 rounded-2xl shadow-card hover:border-slate-300 hover:shadow-card-hover transition-all duration-150;
+  }
+
+  .clinical-section-header {
+    @apply px-5 py-4 border-b border-slate-100/90 flex items-center justify-between;
+  }
+
+  /* Clinical Inputs & Form Fields */
+  .clinical-input {
+    @apply w-full h-10 px-3.5 bg-white border border-slate-200 rounded-xl text-xs font-medium text-slate-800 placeholder-slate-400 outline-none transition-all focus:border-forest-600 focus:ring-2 focus:ring-forest-600/15 disabled:bg-slate-50 disabled:text-slate-400 disabled:cursor-not-allowed;
+  }
+
+  .clinical-input-search {
+    @apply clinical-input pl-10;
+  }
+
+  .clinical-label {
+    @apply block font-bold text-slate-700 uppercase tracking-wider text-[10.5px] mb-1.5;
+  }
+
+  /* Buttons */
+  .btn-primary {
+    @apply px-4 py-2 bg-forest-700 hover:bg-forest-800 active:bg-forest-900 text-white font-bold text-xs rounded-xl shadow-hairline hover:shadow-sm transition-all duration-150 flex items-center justify-center gap-1.5 disabled:bg-slate-200 disabled:text-slate-400 disabled:cursor-not-allowed active:scale-[0.99];
+  }
+
+  .btn-secondary {
+    @apply px-4 py-2 bg-white hover:bg-slate-50 active:bg-slate-100 text-slate-700 border border-slate-200 font-bold text-xs rounded-xl shadow-hairline hover:border-slate-300 transition-all duration-150 flex items-center justify-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+
+  .btn-accent {
+    @apply px-4 py-2 bg-amber-600 hover:bg-amber-700 active:bg-amber-800 text-white font-bold text-xs rounded-xl shadow-hairline hover:shadow-sm transition-all duration-150 flex items-center justify-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed active:scale-[0.99];
+  }
+
+  .btn-danger {
+    @apply px-4 py-2 bg-rose-600 hover:bg-rose-700 active:bg-rose-800 text-white font-bold text-xs rounded-xl shadow-hairline transition-all duration-150 flex items-center justify-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+
+  /* Status Badges */
+  .badge-confirmed {
+    @apply bg-forest-50 text-forest-800 border border-forest-200/90 font-bold text-[10px] uppercase px-2.5 py-0.5 rounded-md tracking-wider;
+  }
+
+  .badge-waiting {
+    @apply bg-amber-50 text-amber-800 border border-amber-200/90 font-bold text-[10px] uppercase px-2.5 py-0.5 rounded-md tracking-wider;
+  }
+
+  .badge-in-progress {
+    @apply bg-amber-100/80 text-amber-900 border border-amber-300 font-bold text-[10px] uppercase px-2.5 py-0.5 rounded-md tracking-wider;
+  }
+
+  .badge-finished {
+    @apply bg-forest-100 text-forest-900 border border-forest-300 font-bold text-[10px] uppercase px-2.5 py-0.5 rounded-md tracking-wider;
+  }
+
+  .badge-cancelled {
+    @apply bg-rose-50 text-rose-800 border border-rose-200 font-bold text-[10px] uppercase px-2.5 py-0.5 rounded-md tracking-wider;
+  }
+
+  .badge-neutral {
+    @apply bg-slate-100 text-slate-700 border border-slate-200 font-bold text-[10px] uppercase px-2.5 py-0.5 rounded-md tracking-wider;
+  }
+
+  /* Tables */
+  .clinical-table {
+    @apply w-full text-left border-collapse text-xs;
+  }
+
+  .clinical-table th {
+    @apply py-3 px-4 bg-slate-50/70 border-b border-slate-200 text-[10.5px] font-bold text-slate-600 uppercase tracking-wider select-none;
+  }
+
+  .clinical-table td {
+    @apply py-3 px-4 border-b border-slate-100 text-slate-700 transition-colors;
+  }
+
+  .clinical-table tbody tr:hover {
+    @apply bg-forest-50/40;
+  }
+}
+
+/* Subtle Micro-Animations */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(3px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes slideDown {
+  from { opacity: 0; transform: translateY(-6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.18s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.animate-slide-down {
+  animation: slideDown 0.18s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@media print {
+  *, *::before, *::after {
+    box-shadow: none !important;
+    text-shadow: none !important;
+  }
+
+  html, body, #root, main, div {
+    background: #ffffff !important;
+    background-color: #ffffff !important;
+  }
+  
+  @page {
+    margin: 8mm 10mm 10mm 10mm;
+    size: auto;
+  }
+
+  .print-avoid-break {
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+
+  .print-page-break {
+    page-break-after: always;
+    break-after: always;
+  }
+}
