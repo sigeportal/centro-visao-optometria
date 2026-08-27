@@ -23,6 +23,7 @@ uses
   Autorizacao.Middleware,
   Autorizacao.Service,
   ConfiguracaoClinica.Service,
+  Correlation.Middleware,
   Response.Utils,
   Logger.Utils;
 
@@ -36,6 +37,8 @@ end;
 
 class procedure TConfiguracaoClinicaController.Obter(Req: THorseRequest;
   Res: THorseResponse; Next: TProc);
+var
+  LCorrelationId: string;
 begin
   try
     Res.Send<TJSONObject>(TResponseUtils.Success('Dados da clinica carregados',
@@ -43,8 +46,9 @@ begin
   except
     on E: Exception do
     begin
-      TLogger.Error('ConfiguracaoClinicaController.Obter', E);
-      Res.Send<TJSONObject>(TResponseUtils.InternalError(E.Message))
+      LCorrelationId := ObterCorrelationId(Req);
+      TLogger.Error(Format('[%s] %s', [LCorrelationId, 'ConfiguracaoClinicaController.Obter']), E);
+      Res.Send<TJSONObject>(TResponseUtils.InternalError('Ocorreu um erro interno ao processar a solicitacao', LCorrelationId))
         .Status(THTTPStatus.InternalServerError);
     end;
   end;
@@ -52,6 +56,8 @@ end;
 
 class procedure TConfiguracaoClinicaController.Atualizar(Req: THorseRequest;
   Res: THorseResponse; Next: TProc);
+var
+  LCorrelationId: string;
 begin
   try
     Res.Send<TJSONObject>(TResponseUtils.Success('Dados da clinica atualizados',
@@ -63,8 +69,9 @@ begin
         .Status(THTTPStatus.UnprocessableEntity);
     on E: Exception do
     begin
-      TLogger.Error('ConfiguracaoClinicaController.Atualizar', E);
-      Res.Send<TJSONObject>(TResponseUtils.InternalError(E.Message))
+      LCorrelationId := ObterCorrelationId(Req);
+      TLogger.Error(Format('[%s] %s', [LCorrelationId, 'ConfiguracaoClinicaController.Atualizar']), E);
+      Res.Send<TJSONObject>(TResponseUtils.InternalError('Ocorreu um erro interno ao processar a solicitacao', LCorrelationId))
         .Status(THTTPStatus.InternalServerError);
     end;
   end;

@@ -70,6 +70,8 @@ uses
   Autorizacao.Middleware,
   Autorizacao.Service,
   Paciente.Service,
+  Auditoria.Service,
+  Correlation.Middleware,
   Response.Utils,
   Logger.Utils;
 
@@ -93,6 +95,7 @@ var
   LBusca: string;
   LPage: Integer;
   LLimit: Integer;
+  LCorrelationId: string;
 begin
   Service := TPacienteService.Create;
   try
@@ -105,8 +108,9 @@ begin
   except
     on E: Exception do
     begin
-      TLogger.Error('PacienteController.Listar', E);
-      Res.Send<TJSONObject>(TResponseUtils.InternalError(E.Message))
+      LCorrelationId := ObterCorrelationId(Req);
+      TLogger.Error(Format('[%s] %s', [LCorrelationId, 'PacienteController.Listar']), E);
+      Res.Send<TJSONObject>(TResponseUtils.InternalError('Ocorreu um erro interno ao processar a solicitacao', LCorrelationId))
         .Status(THTTPStatus.InternalServerError);
     end;
   end;
@@ -118,6 +122,7 @@ var
   Service: TPacienteService;
   LObj: TJSONObject;
   LId: Integer;
+  LCorrelationId: string;
 begin
   Service := TPacienteService.Create;
   try
@@ -130,13 +135,16 @@ begin
       Exit;
     end;
 
+    TAuditoriaService.Registrar(Req, 'READ', 'PACIENTES', LId, 'Acesso ao prontuario');
+
     Res.Send<TJSONObject>(TResponseUtils.Success('Paciente encontrado', LObj))
       .Status(THTTPStatus.OK);
   except
     on E: Exception do
     begin
-      TLogger.Error('PacienteController.ObterPorId', E);
-      Res.Send<TJSONObject>(TResponseUtils.InternalError(E.Message))
+      LCorrelationId := ObterCorrelationId(Req);
+      TLogger.Error(Format('[%s] %s', [LCorrelationId, 'PacienteController.ObterPorId']), E);
+      Res.Send<TJSONObject>(TResponseUtils.InternalError('Ocorreu um erro interno ao processar a solicitacao', LCorrelationId))
         .Status(THTTPStatus.InternalServerError);
     end;
   end;
@@ -148,6 +156,7 @@ var
   Service: TPacienteService;
   LBody, LData: TJSONObject;
   LId: Integer;
+  LCorrelationId: string;
 begin
   Service := TPacienteService.Create;
   try
@@ -160,6 +169,7 @@ begin
     end;
 
     LId := Service.Criar(LBody);
+    TAuditoriaService.Registrar(Req, 'CREATE', 'PACIENTES', LId, 'Cadastro de paciente');
 
     LData := TJSONObject.Create;
     LData.AddPair('id', TJSONNumber.Create(LId));
@@ -173,8 +183,9 @@ begin
     end;
     on E: Exception do
     begin
-      TLogger.Error('PacienteController.Criar', E);
-      Res.Send<TJSONObject>(TResponseUtils.InternalError(E.Message))
+      LCorrelationId := ObterCorrelationId(Req);
+      TLogger.Error(Format('[%s] %s', [LCorrelationId, 'PacienteController.Criar']), E);
+      Res.Send<TJSONObject>(TResponseUtils.InternalError('Ocorreu um erro interno ao processar a solicitacao', LCorrelationId))
         .Status(THTTPStatus.InternalServerError);
     end;
   end;
@@ -186,6 +197,7 @@ var
   Service: TPacienteService;
   LBody, LData: TJSONObject;
   LId: Integer;
+  LCorrelationId: string;
 begin
   Service := TPacienteService.Create;
   try
@@ -206,6 +218,8 @@ begin
       Exit;
     end;
 
+    TAuditoriaService.Registrar(Req, 'UPDATE', 'PACIENTES', LId, 'Atualizacao cadastral');
+
     LData := TJSONObject.Create;
     LData.AddPair('id', TJSONNumber.Create(LId));
     Res.Send<TJSONObject>(TResponseUtils.Success('Paciente atualizado com sucesso', LData))
@@ -218,8 +232,9 @@ begin
     end;
     on E: Exception do
     begin
-      TLogger.Error('PacienteController.Atualizar', E);
-      Res.Send<TJSONObject>(TResponseUtils.InternalError(E.Message))
+      LCorrelationId := ObterCorrelationId(Req);
+      TLogger.Error(Format('[%s] %s', [LCorrelationId, 'PacienteController.Atualizar']), E);
+      Res.Send<TJSONObject>(TResponseUtils.InternalError('Ocorreu um erro interno ao processar a solicitacao', LCorrelationId))
         .Status(THTTPStatus.InternalServerError);
     end;
   end;
@@ -232,6 +247,7 @@ var
   LId: Integer;
   LInativado: Boolean;
   LExiste: TJSONObject;
+  LCorrelationId: string;
 begin
   Service := TPacienteService.Create;
   try
@@ -253,6 +269,7 @@ begin
     LExiste.Free;
 
     LInativado := Service.Excluir(LId);
+    TAuditoriaService.Registrar(Req, 'DELETE', 'PACIENTES', LId, 'Inativacao de paciente');
 
     if LInativado then
       Res.Send<TJSONObject>(TResponseUtils.Success('Paciente inativado com sucesso'))
@@ -263,8 +280,9 @@ begin
   except
     on E: Exception do
     begin
-      TLogger.Error('PacienteController.Excluir', E);
-      Res.Send<TJSONObject>(TResponseUtils.InternalError(E.Message))
+      LCorrelationId := ObterCorrelationId(Req);
+      TLogger.Error(Format('[%s] %s', [LCorrelationId, 'PacienteController.Excluir']), E);
+      Res.Send<TJSONObject>(TResponseUtils.InternalError('Ocorreu um erro interno ao processar a solicitacao', LCorrelationId))
         .Status(THTTPStatus.InternalServerError);
     end;
   end;
@@ -275,6 +293,7 @@ class procedure TPacienteController.ListarAnamneses(Req: THorseRequest; Res: THo
 var
   Service: TPacienteService;
   LId: Integer;
+  LCorrelationId: string;
 begin
   Service := TPacienteService.Create;
   try
@@ -290,8 +309,9 @@ begin
   except
     on E: Exception do
     begin
-      TLogger.Error('PacienteController.ListarAnamneses', E);
-      Res.Send<TJSONObject>(TResponseUtils.InternalError(E.Message))
+      LCorrelationId := ObterCorrelationId(Req);
+      TLogger.Error(Format('[%s] %s', [LCorrelationId, 'PacienteController.ListarAnamneses']), E);
+      Res.Send<TJSONObject>(TResponseUtils.InternalError('Ocorreu um erro interno ao processar a solicitacao', LCorrelationId))
         .Status(THTTPStatus.InternalServerError);
     end;
   end;
@@ -302,6 +322,7 @@ class procedure TPacienteController.ListarConsultas(Req: THorseRequest; Res: THo
 var
   Service: TPacienteService;
   LId: Integer;
+  LCorrelationId: string;
 begin
   Service := TPacienteService.Create;
   try
@@ -317,8 +338,9 @@ begin
   except
     on E: Exception do
     begin
-      TLogger.Error('PacienteController.ListarConsultas', E);
-      Res.Send<TJSONObject>(TResponseUtils.InternalError(E.Message))
+      LCorrelationId := ObterCorrelationId(Req);
+      TLogger.Error(Format('[%s] %s', [LCorrelationId, 'PacienteController.ListarConsultas']), E);
+      Res.Send<TJSONObject>(TResponseUtils.InternalError('Ocorreu um erro interno ao processar a solicitacao', LCorrelationId))
         .Status(THTTPStatus.InternalServerError);
     end;
   end;
@@ -329,6 +351,7 @@ class procedure TPacienteController.ListarRetornos(Req: THorseRequest; Res: THor
 var
   Service: TPacienteService;
   LId: Integer;
+  LCorrelationId: string;
 begin
   Service := TPacienteService.Create;
   try
@@ -347,8 +370,9 @@ begin
         .Status(THTTPStatus.UnprocessableEntity);
     on E: Exception do
     begin
-      TLogger.Error('PacienteController.ListarRetornos', E);
-      Res.Send<TJSONObject>(TResponseUtils.InternalError(E.Message))
+      LCorrelationId := ObterCorrelationId(Req);
+      TLogger.Error(Format('[%s] %s', [LCorrelationId, 'PacienteController.ListarRetornos']), E);
+      Res.Send<TJSONObject>(TResponseUtils.InternalError('Ocorreu um erro interno ao processar a solicitacao', LCorrelationId))
         .Status(THTTPStatus.InternalServerError);
     end;
   end;
@@ -359,6 +383,7 @@ class procedure TPacienteController.ListarFinanceiro(Req: THorseRequest; Res: TH
 var
   Service: TPacienteService;
   LId: Integer;
+  LCorrelationId: string;
 begin
   Service := TPacienteService.Create;
   try
@@ -374,8 +399,9 @@ begin
   except
     on E: Exception do
     begin
-      TLogger.Error('PacienteController.ListarFinanceiro', E);
-      Res.Send<TJSONObject>(TResponseUtils.InternalError(E.Message))
+      LCorrelationId := ObterCorrelationId(Req);
+      TLogger.Error(Format('[%s] %s', [LCorrelationId, 'PacienteController.ListarFinanceiro']), E);
+      Res.Send<TJSONObject>(TResponseUtils.InternalError('Ocorreu um erro interno ao processar a solicitacao', LCorrelationId))
         .Status(THTTPStatus.InternalServerError);
     end;
   end;
@@ -386,6 +412,7 @@ class procedure TPacienteController.ListarDocumentos(Req: THorseRequest; Res: TH
 var
   Service: TPacienteService;
   LId: Integer;
+  LCorrelationId: string;
 begin
   Service := TPacienteService.Create;
   try
@@ -401,8 +428,9 @@ begin
   except
     on E: Exception do
     begin
-      TLogger.Error('PacienteController.ListarDocumentos', E);
-      Res.Send<TJSONObject>(TResponseUtils.InternalError(E.Message))
+      LCorrelationId := ObterCorrelationId(Req);
+      TLogger.Error(Format('[%s] %s', [LCorrelationId, 'PacienteController.ListarDocumentos']), E);
+      Res.Send<TJSONObject>(TResponseUtils.InternalError('Ocorreu um erro interno ao processar a solicitacao', LCorrelationId))
         .Status(THTTPStatus.InternalServerError);
     end;
   end;

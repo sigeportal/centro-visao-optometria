@@ -13,6 +13,10 @@ frontend-centro-visao - Antigo/
 
 # Environment files
 .env
+.env*
+*.env
+**/.env
+**/.env*
 .env.local
 .env.development.local
 .env.test.local
@@ -43,7 +47,6 @@ yarn-debug.log*
 yarn-error.log*
 firebase-debug.log*
 
-
 # OS / IDE
 .DS_Store
 Thumbs.db
@@ -52,5 +55,19 @@ Thumbs.db
 *.suo
 *.user
 
-# Database backups
+# Database and backups (Firebird & archives)
+*.fdb
+*.FDB
+*.fbk
+*.FBK
+*.gdb
+*.GDB
+*.zip
+*.ZIP
+DADOS/*.fdb
+DADOS/*.FDB
+DADOS/*.fbk
+DADOS/*.FBK
+DADOS/*.zip
+DADOS/*.ZIP
 DADOS/backups/

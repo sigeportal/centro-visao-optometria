@@ -98,6 +98,7 @@ uses
   Autorizacao.Service,
   Agenda.Service,
   Atendimento.Service,
+  Correlation.Middleware,
   Response.Utils,
   Logger.Utils;
 
@@ -144,6 +145,7 @@ end;
 class procedure TAgendaController.ListarParcerias(Req: THorseRequest; Res: THorseResponse; Next: TProc);
 var
   Service: TAgendaService;
+  LCorrelationId: string;
 begin
   Service := TAgendaService.Create;
   try
@@ -154,8 +156,9 @@ begin
     except
       on E: Exception do
       begin
-        TLogger.Error('AgendaController.ListarParcerias', E);
-        Res.Send<TJSONObject>(TResponseUtils.InternalError(E.Message))
+        LCorrelationId := ObterCorrelationId(Req);
+        TLogger.Error(Format('[%s] %s', [LCorrelationId, 'AgendaController.ListarParcerias']), E);
+        Res.Send<TJSONObject>(TResponseUtils.InternalError('Ocorreu um erro interno ao processar a solicitacao', LCorrelationId))
           .Status(THTTPStatus.InternalServerError);
       end;
     end;
@@ -167,6 +170,7 @@ end;
 class procedure TAgendaController.ListarProcedimentos(Req: THorseRequest; Res: THorseResponse; Next: TProc);
 var
   Service: TAgendaService;
+  LCorrelationId: string;
 begin
   Service := TAgendaService.Create;
   try
@@ -177,8 +181,9 @@ begin
     except
       on E: Exception do
       begin
-        TLogger.Error('AgendaController.ListarProcedimentos', E);
-        Res.Send<TJSONObject>(TResponseUtils.InternalError(E.Message))
+        LCorrelationId := ObterCorrelationId(Req);
+        TLogger.Error(Format('[%s] %s', [LCorrelationId, 'AgendaController.ListarProcedimentos']), E);
+        Res.Send<TJSONObject>(TResponseUtils.InternalError('Ocorreu um erro interno ao processar a solicitacao', LCorrelationId))
           .Status(THTTPStatus.InternalServerError);
       end;
     end;
@@ -194,6 +199,7 @@ var
   LAgendamentoId: Integer;
   LConsultaId: Integer;
   LStatus: string;
+  LCorrelationId: string;
 begin
   Service := TAtendimentoService.Create;
   try
@@ -215,8 +221,9 @@ begin
         EnviarValidacao(Res, E.Message);
       on E: Exception do
       begin
-        TLogger.Error('AgendaController.IniciarAtendimento', E);
-        Res.Send<TJSONObject>(TResponseUtils.InternalError(E.Message))
+        LCorrelationId := ObterCorrelationId(Req);
+        TLogger.Error(Format('[%s] %s', [LCorrelationId, 'AgendaController.IniciarAtendimento']), E);
+        Res.Send<TJSONObject>(TResponseUtils.InternalError('Ocorreu um erro interno ao processar a solicitacao', LCorrelationId))
           .Status(THTTPStatus.InternalServerError);
       end;
     end;
@@ -228,6 +235,7 @@ end;
 class procedure TAgendaController.ListarProfissionais(Req: THorseRequest; Res: THorseResponse; Next: TProc);
 var
   Service: TAgendaService;
+  LCorrelationId: string;
 begin
   Service := TAgendaService.Create;
   try
@@ -238,8 +246,9 @@ begin
     except
       on E: Exception do
       begin
-        TLogger.Error('AgendaController.ListarProfissionais', E);
-        Res.Send<TJSONObject>(TResponseUtils.InternalError(E.Message))
+        LCorrelationId := ObterCorrelationId(Req);
+        TLogger.Error(Format('[%s] %s', [LCorrelationId, 'AgendaController.ListarProfissionais']), E);
+        Res.Send<TJSONObject>(TResponseUtils.InternalError('Ocorreu um erro interno ao processar a solicitacao', LCorrelationId))
           .Status(THTTPStatus.InternalServerError);
       end;
     end;
@@ -251,6 +260,7 @@ end;
 class procedure TAgendaController.Listar(Req: THorseRequest; Res: THorseResponse; Next: TProc);
 var
   Service: TAgendaService;
+  LCorrelationId: string;
 begin
   Service := TAgendaService.Create;
   try
@@ -268,8 +278,9 @@ begin
   except
     on E: Exception do
     begin
-      TLogger.Error('AgendaController.Listar', E);
-      Res.Send<TJSONObject>(TResponseUtils.InternalError(E.Message))
+      LCorrelationId := ObterCorrelationId(Req);
+      TLogger.Error(Format('[%s] %s', [LCorrelationId, 'AgendaController.Listar']), E);
+      Res.Send<TJSONObject>(TResponseUtils.InternalError('Ocorreu um erro interno ao processar a solicitacao', LCorrelationId))
         .Status(THTTPStatus.InternalServerError);
     end;
   end;
@@ -281,6 +292,7 @@ var
   Service: TAgendaService;
   LObj: TJSONObject;
   LId: Integer;
+  LCorrelationId: string;
 begin
   Service := TAgendaService.Create;
   try
@@ -304,8 +316,9 @@ begin
   except
     on E: Exception do
     begin
-      TLogger.Error('AgendaController.ObterPorId', E);
-      Res.Send<TJSONObject>(TResponseUtils.InternalError(E.Message))
+      LCorrelationId := ObterCorrelationId(Req);
+      TLogger.Error(Format('[%s] %s', [LCorrelationId, 'AgendaController.ObterPorId']), E);
+      Res.Send<TJSONObject>(TResponseUtils.InternalError('Ocorreu um erro interno ao processar a solicitacao', LCorrelationId))
         .Status(THTTPStatus.InternalServerError);
     end;
   end;
@@ -317,6 +330,7 @@ var
   Service: TAgendaService;
   LBody: TJSONObject;
   LIdGerado: Integer;
+  LCorrelationId: string;
 begin
   Service := TAgendaService.Create;
   try
@@ -335,8 +349,9 @@ begin
       EnviarValidacao(Res, E.Message);
     on E: Exception do
     begin
-      TLogger.Error('AgendaController.Criar', E);
-      Res.Send<TJSONObject>(TResponseUtils.InternalError(E.Message))
+      LCorrelationId := ObterCorrelationId(Req);
+      TLogger.Error(Format('[%s] %s', [LCorrelationId, 'AgendaController.Criar']), E);
+      Res.Send<TJSONObject>(TResponseUtils.InternalError('Ocorreu um erro interno ao processar a solicitacao', LCorrelationId))
         .Status(THTTPStatus.InternalServerError);
     end;
   end;
@@ -348,6 +363,7 @@ var
   Service: TAgendaService;
   LBody: TJSONObject;
   LId: Integer;
+  LCorrelationId: string;
 begin
   Service := TAgendaService.Create;
   try
@@ -367,8 +383,9 @@ begin
       EnviarValidacao(Res, E.Message);
     on E: Exception do
     begin
-      TLogger.Error('AgendaController.Atualizar', E);
-      Res.Send<TJSONObject>(TResponseUtils.InternalError(E.Message))
+      LCorrelationId := ObterCorrelationId(Req);
+      TLogger.Error(Format('[%s] %s', [LCorrelationId, 'AgendaController.Atualizar']), E);
+      Res.Send<TJSONObject>(TResponseUtils.InternalError('Ocorreu um erro interno ao processar a solicitacao', LCorrelationId))
         .Status(THTTPStatus.InternalServerError);
     end;
   end;
@@ -381,6 +398,7 @@ var
   LBody, LData: TJSONObject;
   LId: Integer;
   LStatus: string;
+  LCorrelationId: string;
 begin
   Service := TAgendaService.Create;
   try
@@ -403,8 +421,9 @@ begin
       EnviarValidacao(Res, E.Message);
     on E: Exception do
     begin
-      TLogger.Error('AgendaController.AlterarStatus', E);
-      Res.Send<TJSONObject>(TResponseUtils.InternalError(E.Message))
+      LCorrelationId := ObterCorrelationId(Req);
+      TLogger.Error(Format('[%s] %s', [LCorrelationId, 'AgendaController.AlterarStatus']), E);
+      Res.Send<TJSONObject>(TResponseUtils.InternalError('Ocorreu um erro interno ao processar a solicitacao', LCorrelationId))
         .Status(THTTPStatus.InternalServerError);
     end;
   end;
@@ -420,6 +439,7 @@ class procedure TAgendaController.Cancelar(Req: THorseRequest; Res: THorseRespon
 var
   Service: TAgendaService;
   LId: Integer;
+  LCorrelationId: string;
 begin
   Service := TAgendaService.Create;
   try
@@ -438,8 +458,9 @@ begin
       EnviarValidacao(Res, E.Message);
     on E: Exception do
     begin
-      TLogger.Error('AgendaController.Cancelar', E);
-      Res.Send<TJSONObject>(TResponseUtils.InternalError(E.Message))
+      LCorrelationId := ObterCorrelationId(Req);
+      TLogger.Error(Format('[%s] %s', [LCorrelationId, 'AgendaController.Cancelar']), E);
+      Res.Send<TJSONObject>(TResponseUtils.InternalError('Ocorreu um erro interno ao processar a solicitacao', LCorrelationId))
         .Status(THTTPStatus.InternalServerError);
     end;
   end;
@@ -449,6 +470,7 @@ end;
 class procedure TAgendaController.FilaEspera(Req: THorseRequest; Res: THorseResponse; Next: TProc);
 var
   Service: TAgendaService;
+  LCorrelationId: string;
 begin
   Service := TAgendaService.Create;
   try
@@ -458,8 +480,9 @@ begin
   except
     on E: Exception do
     begin
-      TLogger.Error('AgendaController.FilaEspera', E);
-      Res.Send<TJSONObject>(TResponseUtils.InternalError(E.Message))
+      LCorrelationId := ObterCorrelationId(Req);
+      TLogger.Error(Format('[%s] %s', [LCorrelationId, 'AgendaController.FilaEspera']), E);
+      Res.Send<TJSONObject>(TResponseUtils.InternalError('Ocorreu um erro interno ao processar a solicitacao', LCorrelationId))
         .Status(THTTPStatus.InternalServerError);
     end;
   end;
@@ -471,6 +494,7 @@ var
   Service: TAgendaService;
   LBody: TJSONObject;
   LId: Integer;
+  LCorrelationId: string;
 begin
   Service := TAgendaService.Create;
   try
@@ -493,8 +517,9 @@ begin
       EnviarValidacao(Res, E.Message);
     on E: Exception do
     begin
-      TLogger.Error('AgendaController.LancarPagamento', E);
-      Res.Send<TJSONObject>(TResponseUtils.InternalError(E.Message))
+      LCorrelationId := ObterCorrelationId(Req);
+      TLogger.Error(Format('[%s] %s', [LCorrelationId, 'AgendaController.LancarPagamento']), E);
+      Res.Send<TJSONObject>(TResponseUtils.InternalError('Ocorreu um erro interno ao processar a solicitacao', LCorrelationId))
         .Status(THTTPStatus.InternalServerError);
     end;
   end;

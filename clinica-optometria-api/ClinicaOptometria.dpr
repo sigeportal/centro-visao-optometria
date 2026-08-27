@@ -13,11 +13,13 @@ uses
   Horse.Logger,
   Horse.Logger.Provider.Console,
   Horse.GBSwagger,
+  Correlation.Middleware in 'middlewares\Correlation.Middleware.pas',
   App.Routes in 'routes\App.Routes.pas',
-  UnitDatabase in '..\..\FormsComuns\Classes\ServidoresUtils\Database\UnitDatabase.pas',
-  UnitConstants in '..\..\FormsComuns\Classes\ServidoresUtils\Utils\UnitConstants.pas',
-  Auth.Middleware in '..\..\FormsComuns\Classes\ServidoresUtils\Middlewares\Auth.Middleware.pas',
+  UnitDatabase in 'database\UnitDatabase.pas',
+  UnitConstants in 'utils\UnitConstants.pas',
+  Auth.Middleware in 'middlewares\Auth.Middleware.pas',
   Autorizacao.Middleware in 'middlewares\Autorizacao.Middleware.pas',
+  SecurityHeaders.Middleware in 'middlewares\SecurityHeaders.Middleware.pas',
   Autorizacao.Controller in 'Controllers\Autorizacao.Controller.pas',
   Funcionario.Controller in 'Controllers\Funcionario.Controller.pas',
   Catalogo.Controller in 'Controllers\Catalogo.Controller.pas',
@@ -52,15 +54,18 @@ uses
   UnitParceria.Model in 'Model\UnitParceria.Model.pas',
   UnitProcedimento.Model in 'Model\UnitProcedimento.Model.pas',
   Dataset.JSON.Utils in 'utils\Dataset.JSON.Utils.pas',
-  UnitFunctions in '..\..\FormsComuns\Classes\ServidoresUtils\Utils\UnitFunctions.pas',
-  Auth.Service in '..\..\FormsComuns\Classes\ServidoresUtils\Services\Auth.Service.pas',
-  UnitUsuarios.Model in '..\..\FormsComuns\Classes\Usuarios\Model\UnitUsuarios.Model.pas',
-  UnitPermissoes.Model in '..\..\FormsComuns\Classes\Permissoes\Model\UnitPermissoes.Model.pas',
+  UnitFunctions in 'utils\UnitFunctions.pas',
+  Auth.Service in 'services\Auth.Service.pas',
+  UnitUsuarios.Model in 'Model\UnitUsuarios.Model.pas',
+  UnitPermissoes.Model in 'Model\UnitPermissoes.Model.pas',
   UnitFuncionarios.Model in 'Model\UnitFuncionarios.Model.pas',
-  JWT.Utils in '..\..\FormsComuns\Classes\ServidoresUtils\security\JWT.Utils.pas',
-  Auth.Controller in '..\..\FormsComuns\Classes\ServidoresUtils\Controllers\Auth.Controller.pas',
-  Logger.Utils in '..\..\FormsComuns\Classes\ServidoresUtils\Utils\Logger.Utils.pas',
-  Response.Utils in '..\..\FormsComuns\Classes\ServidoresUtils\Utils\Response.Utils.pas';
+  UnitAuditoria.Model in 'Model\UnitAuditoria.Model.pas',
+  Auditoria.Service in 'services\Auditoria.Service.pas',
+  JWT.Utils in 'security\JWT.Utils.pas',
+  Security.Password in 'security\Security.Password.pas',
+  Auth.Controller in 'Controllers\Auth.Controller.pas',
+  Logger.Utils in 'utils\Logger.Utils.pas',
+  Response.Utils in 'utils\Response.Utils.pas';
 
 var
   LLogConfig: THorseLoggerConsoleConfig;
@@ -68,17 +73,50 @@ var
 begin
   ReportMemoryLeaksOnShutdown := False;
 
+  TConstants.CarregarArquivoEnv;
   TLogger.Setup;
+
+  try
+    TConstants.ValidarConfiguracaoObrigatoria;
+    TLogger.Info('Configuracao de seguranca validada com sucesso');
+  except
+    on E: EConfiguracaoInvalida do
+    begin
+      Writeln('ERRO FATAL DE CONFIGURACAO: ' + E.Message);
+      TLogger.Error('Inicializacao abortada', E);
+      ExitCode := 1;
+      Exit;
+    end;
+  end;
 
   LLogConfig := THorseLoggerConsoleConfig.New
     .SetLogFormat('${request_clientip} [${time}] ${request_method} ${request_path} -> ${response_status}');
   try
     THorseLoggerManager.RegisterProvider(THorseLoggerProviderConsole.New);
 
+    HorseCORS
+      .AllowedOrigin(TConstants.CORSAllowedOrigins)
+      .AllowedHeaders('Content-Type, Authorization, X-Requested-With, Accept, Origin')
+      .AllowedMethods('GET, POST, PUT, DELETE, PATCH, OPTIONS')
+      .AllowedCredentials(True);
+
+    THorse.Use(MiddlewareCorrelation);
     THorse.Use(CORS);
+    THorse.Use(MiddlewareSecurityHeaders);
     THorse.Use(Jhonson);
     THorse.Use(THorseLoggerManager.HorseCallback);
-    THorse.Use(HandleException);
+    THorse.Use(HandleException(
+      procedure(const E: Exception; const Req: THorseRequest; const Res: THorseResponse; var ASendException: Boolean)
+      var
+        LCorrelationId: string;
+      begin
+        ASendException := False;
+        LCorrelationId := ObterCorrelationId(Req);
+        TLogger.Error(Format('[%s] Excecao nao tratada na rota %s', [LCorrelationId, Req.RawWebRequest.PathInfo]), E);
+        Res.Send<TJSONObject>(TResponseUtils.InternalError('Ocorreu um erro interno ao processar a solicitacao', LCorrelationId))
+          .Status(THTTPStatus.InternalServerError);
+      end
+    ));
     THorse.Use(HorseSwagger);
 
     Swagger
@@ -100,7 +138,8 @@ begin
 
     TAppRoutes.Routes;
 
-    THorse.Listen(ObterPorta,
+    THorse.Port := ObterPorta;
+    THorse.Listen(
       procedure
       begin
         Writeln('=================================================');

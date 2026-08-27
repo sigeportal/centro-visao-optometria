@@ -16,14 +16,11 @@ implementation
 uses
   System.JSON,
   System.SysUtils,
-  System.SyncObjs,
   Horse.Commons,
   Autorizacao.Service,
+  Correlation.Middleware,
   Response.Utils,
   Logger.Utils;
-
-var
-  GAuthorizedRequestLock: TCriticalSection;
 
 function UsuarioIdAutenticado(Req: THorseRequest): Integer;
 var
@@ -41,36 +38,33 @@ begin
     procedure(Req: THorseRequest; Res: THorseResponse; Next: TProc)
     var
       LUsuarioId: Integer;
+      LCorrelationId: string;
     begin
-      GAuthorizedRequestLock.Acquire;
       try
-        try
-          LUsuarioId := UsuarioIdAutenticado(Req);
-          if LUsuarioId <= 0 then
-          begin
-            Res.Send<TJSONObject>(TResponseUtils.Unauthorized('Usuario nao autenticado'))
-              .Status(THTTPStatus.Unauthorized);
-            Exit;
-          end;
-
-          if not TAutorizacaoService.TemPermissao(LUsuarioId, APermissao) then
-          begin
-            Res.Send<TJSONObject>(TResponseUtils.Error('Acesso negado para esta operacao', 403))
-              .Status(THTTPStatus.Forbidden);
-            Exit;
-          end;
-
-          Next;
-        except
-          on E: Exception do
-          begin
-            TLogger.Error('AutorizacaoMiddleware.ExigirPermissao', E);
-            Res.Send<TJSONObject>(TResponseUtils.InternalError(E.Message))
-              .Status(THTTPStatus.InternalServerError);
-          end;
+        LUsuarioId := UsuarioIdAutenticado(Req);
+        if LUsuarioId <= 0 then
+        begin
+          Res.Send<TJSONObject>(TResponseUtils.Unauthorized('Usuario nao autenticado'))
+            .Status(THTTPStatus.Unauthorized);
+          Exit;
         end;
-      finally
-        GAuthorizedRequestLock.Release;
+
+        if not TAutorizacaoService.TemPermissao(LUsuarioId, APermissao) then
+        begin
+          Res.Send<TJSONObject>(TResponseUtils.Error('Acesso negado para esta operacao', 403))
+            .Status(THTTPStatus.Forbidden);
+          Exit;
+        end;
+
+        Next;
+      except
+        on E: Exception do
+        begin
+          LCorrelationId := ObterCorrelationId(Req);
+          TLogger.Error(Format('[%s] %s', [LCorrelationId, 'AutorizacaoMiddleware.ExigirPermissao']), E);
+          Res.Send<TJSONObject>(TResponseUtils.InternalError('Ocorreu um erro interno ao processar a solicitacao', LCorrelationId))
+            .Status(THTTPStatus.InternalServerError);
+        end;
       end;
     end;
 end;
@@ -82,44 +76,35 @@ begin
     procedure(Req: THorseRequest; Res: THorseResponse; Next: TProc)
     var
       LUsuarioId: Integer;
+      LCorrelationId: string;
     begin
-      GAuthorizedRequestLock.Acquire;
       try
-        try
-          LUsuarioId := UsuarioIdAutenticado(Req);
-          if LUsuarioId <= 0 then
-          begin
-            Res.Send<TJSONObject>(TResponseUtils.Unauthorized('Usuario nao autenticado'))
-              .Status(THTTPStatus.Unauthorized);
-            Exit;
-          end;
-
-          if not TAutorizacaoService.TemPermissao(LUsuarioId, APermissao) then
-          begin
-            Res.Send<TJSONObject>(TResponseUtils.Error('Acesso negado para esta operacao', 403))
-              .Status(THTTPStatus.Forbidden);
-            Exit;
-          end;
-
-          ACallback(Req, Res, Next);
-        except
-          on E: Exception do
-          begin
-            TLogger.Error('AutorizacaoMiddleware.AutorizarRota', E);
-            Res.Send<TJSONObject>(TResponseUtils.InternalError(E.Message))
-              .Status(THTTPStatus.InternalServerError);
-          end;
+        LUsuarioId := UsuarioIdAutenticado(Req);
+        if LUsuarioId <= 0 then
+        begin
+          Res.Send<TJSONObject>(TResponseUtils.Unauthorized('Usuario nao autenticado'))
+            .Status(THTTPStatus.Unauthorized);
+          Exit;
         end;
-      finally
-        GAuthorizedRequestLock.Release;
+
+        if not TAutorizacaoService.TemPermissao(LUsuarioId, APermissao) then
+        begin
+          Res.Send<TJSONObject>(TResponseUtils.Error('Acesso negado para esta operacao', 403))
+            .Status(THTTPStatus.Forbidden);
+          Exit;
+        end;
+
+        ACallback(Req, Res, Next);
+      except
+        on E: Exception do
+        begin
+          LCorrelationId := ObterCorrelationId(Req);
+          TLogger.Error(Format('[%s] %s', [LCorrelationId, 'AutorizacaoMiddleware.AutorizarRota']), E);
+          Res.Send<TJSONObject>(TResponseUtils.InternalError('Ocorreu um erro interno ao processar a solicitacao', LCorrelationId))
+            .Status(THTTPStatus.InternalServerError);
+        end;
       end;
     end;
 end;
-
-initialization
-  GAuthorizedRequestLock := TCriticalSection.Create;
-
-finalization
-  GAuthorizedRequestLock.Free;
 
 end.
