@@ -88,10 +88,6 @@ export default function ImprimirDocumentoModal({
             <strong className="text-sm font-bold text-slate-900">{patient?.name || 'Paciente'}</strong>
           </div>
           <div>
-            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">CPF</span>
-            <span className="font-mono font-bold text-slate-800">{formatCPF(patient?.cpf)}</span>
-          </div>
-          <div>
             <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">Data de Emissão</span>
             <span className="font-bold text-slate-800">{new Date().toLocaleDateString('pt-BR')}</span>
           </div>

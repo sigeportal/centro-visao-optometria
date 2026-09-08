@@ -27,6 +27,9 @@ import { listarConsultasPaciente } from '../../api/pacientes';
 import { obterDadosClinica } from '../../api/configuracoes';
 import { generateAnamnesisHtml, printAnamneseViaIframe } from '../../utils/printAnamnese';
 import {
+  atualizarPrescricaoConsulta,
+  criarPrescricaoConsulta,
+  listarPrescricoesConsulta,
   obterAnamneseConsulta,
   obterSecaoFichaClinica,
   salvarAnamneseConsulta,
@@ -35,11 +38,12 @@ import {
 import { parseApiDateTime, toIsoDate } from '../../domain/agenda';
 import { adaptConsultation } from '../../domain/consultas';
 import RichTextEditor, { sanitizeRichTextHtml } from '../Common/RichTextEditor';
+import { formatDiopter, formatAxis } from '../../utils/formatters';
 
 const ANAMNESIS_OPTIONS = {
   sintomas: [
-    'Prurido', 'Fotofobia', 'Hiperemia', 'Pterígio', 'Epífera', 'Trauma',
-    'Vermelhidão', 'Ardência', 'Dor Ocular', 'Lacrimejamento', 'Força a Visão',
+    'Prurido', 'Fotofobia', 'Hiperemia', 'Epífera', 'Trauma',
+    'Ardência', 'Dor Ocular', 'Lacrimejamento', 'Força a Visão',
     'Cansaço Visual', 'Sensibilidade à Luz',
   ],
   doencasOculares: ['Glaucoma', 'Catarata', 'Pterígio', 'Ceratocone', 'Estrabismo', 'Conjuntivite'],
@@ -50,7 +54,8 @@ const ANAMNESIS_OPTIONS = {
   ],
   antecedentes: ['Diabetes', 'Estrabismo', 'Glaucoma', 'Pressão Alta', 'Catarata', 'Alguém usa óculos?'],
   cefaleiaLocal: ['Frontal', 'Temporal', 'Occipital', 'Parietal'],
-  cefaleiaFrequencia: ['Todo o dia', 'Eventual', 'Segue o sexo', 'Fim de semana', 'Manhã', 'Tarde', 'Noite', 'Infrequente', 'Frequente', 'Crônica'],
+  cefaleiaMomento: ['Manhã', 'Tarde', 'Noite', 'Fim de semana'],
+  cefaleiaFrequencia: ['Todo o dia', 'Eventual', 'Infrequente', 'Frequente', 'Crônica'],
 };
 
 const BIOMICROSCOPY_FIELDS = [
@@ -90,9 +95,9 @@ const OPHTHALMOSCOPY_FIELDS = [
 ];
 
 const REFRACTION_FIELDS = [
-  ['esferico', 'Esférico', 'text'],
-  ['cilindrico', 'Cilíndrico', 'text'],
-  ['eixo', 'Eixo', 'number'],
+  ['esferico', 'Esférico', 'number', '0.25'],
+  ['cilindrico', 'Cilíndrico', 'number', '0.25'],
+  ['eixo', 'Eixo', 'number', '1'],
   ['avLonge', 'AV longe', 'text'],
 ];
 
@@ -103,6 +108,7 @@ const REFRACTION_NEAR_FIELDS = [
 
 const RX_FINAL_EYE_FIELDS = [
   ...REFRACTION_NEAR_FIELDS,
+  ['prisma', 'Prisma', 'text'],
   ['dnp', 'DNP', 'text'],
   ['altura', 'Altura', 'text'],
 ];
@@ -124,12 +130,11 @@ const SECTIONS_CONFIG = [
   { id: 'afinamento', title: '14. Afinamento' },
   { id: 'dx', title: '15. DX (Diagnóstico e Conduta)' },
   { id: 'flexibilidadeAcomodacao', title: '16. Flexibilidade e Facilidade de Acomodação' },
-  { id: 'adicao', title: '17. Adição' },
-  { id: 'ppc', title: '18. PPC (Ponto Próximo de Convergência)' },
-  { id: 'reflexosPupilares', title: '19. Reflexos Pupilares' },
-  { id: 'reservasFusionais', title: '20. Reservas Fusionais' },
-  { id: 'subjetivo', title: '21. Subjetivo' },
-  { id: 'testeAmbulatorial', title: '22. Teste Ambulatorial' },
+  { id: 'ppc', title: '17. PPC (Ponto Próximo de Convergência)' },
+  { id: 'reflexosPupilares', title: '18. Reflexos Pupilares' },
+  { id: 'reservasFusionais', title: '19. Reservas Fusionais' },
+  { id: 'subjetivo', title: '20. Subjetivo' },
+  { id: 'testeAmbulatorial', title: '21. Teste Ambulatorial' },
 ];
 
 function clearClinicalData(value) {
@@ -181,6 +186,38 @@ function getErrorMessage(error, fallback) {
 function eyeValue(value, eye) {
   if (value && typeof value === 'object' && !Array.isArray(value)) return value[eye] ?? '';
   return value ?? '';
+}
+
+function calculateNearEye(farEye, addition, currentNearEye = {}) {
+  const addStr = String(addition ?? '').trim().replace(',', '.');
+  const addNum = parseFloat(addStr);
+
+  let nearEsf = currentNearEye?.esferico ?? '';
+  if (!Number.isNaN(addNum)) {
+    const farEsfStr = String(farEye?.esferico ?? '').trim().replace(',', '.');
+    const farEsfNum = farEsfStr === '' ? 0 : parseFloat(farEsfStr);
+    if (!Number.isNaN(farEsfNum)) {
+      nearEsf = formatDiopter(farEsfNum + addNum);
+    }
+  }
+
+  // DNP perto com redução fisiológica de 2mm se DNP de longe existir
+  let nearDnp = currentNearEye?.dnp ?? '';
+  const farDnpNum = parseFloat(String(farEye?.dnp ?? '').trim().replace(',', '.'));
+  if (!Number.isNaN(farDnpNum) && farDnpNum > 0) {
+    nearDnp = (farDnpNum - 2).toFixed(1);
+  } else if (farEye?.dnp) {
+    nearDnp = farEye.dnp;
+  }
+
+  return {
+    ...currentNearEye,
+    esferico: nearEsf,
+    cilindrico: farEye?.cilindrico ?? currentNearEye?.cilindrico ?? '',
+    eixo: farEye?.eixo ?? currentNearEye?.eixo ?? '',
+    prisma: farEye?.prisma ?? currentNearEye?.prisma ?? '',
+    dnp: nearDnp,
+  };
 }
 
 function VersoesHDiagram({ eye = 'OD', values = {}, onChange, disabled = false }) {
@@ -520,15 +557,24 @@ export default function AnamneseFichaClinica({ patient, consultation, disabled =
     outrasDoencasSistemicas: "",
     outrosMedicamentos: "",
     usoOculos: ["Usa Óculos", "Dificuldade Perto"],
-    usoLentes: [],
+    usoLentes: '',
     cefaleia: ["Dor de cabeça", "Frontal", "Tarde", "Frequente"],
+    cefaleiaLocalOutro: "",
+    cefaleiaFrequenciaOutro: "",
     antecedentes: ["Pressão Alta", "Alguém usa óculos?"],
+    antecedentesOutros: "",
     observacoesAnamnese: "Histórico familiar positivo para miopia materna.",
 
     // 2. Prescrição do Último Exame
     ultimoExame: {
-      od: { esferico: "-2.00", cilindrico: "-0.50", eixo: "180", adicao: "+1.50", dnp: "32", alt: "18", lentes: "Multifocal" },
-      oe: { esferico: "-1.75", cilindrico: "-0.75", eixo: "175", adicao: "+1.50", dnp: "31.5", alt: "18", lentes: "Multifocal" }
+      modo: 'longe_perto',
+      od: { esferico: "-2.00", cilindrico: "-0.50", eixo: "180", dnp: "32", alt: "18", lentes: "Multifocal" },
+      oe: { esferico: "-1.75", cilindrico: "-0.75", eixo: "175", dnp: "31.5", alt: "18", lentes: "Multifocal" },
+      adicao: "+1.50",
+      perto: {
+        od: { esferico: "-0.50", cilindrico: "-0.50", eixo: "180", dnp: "30.0" },
+        oe: { esferico: "-0.25", cilindrico: "-0.75", eixo: "175", dnp: "29.5" }
+      }
     },
 
     // 3. Acuidade Visual
@@ -590,8 +636,8 @@ export default function AnamneseFichaClinica({ patient, consultation, disabled =
     // 8. Oftalmoscopia
     oftalmoscopia: {
       tecnica: '',
-      od: { bruckner: '', meiosRefringentes: '', papila: '', escavacao: '', macula: '', fixacao: '', cor: '', relacaoAv: '' },
-      oe: { bruckner: '', meiosRefringentes: '', papila: '', escavacao: '', macula: '', fixacao: '', cor: '', relacaoAv: '' },
+      od: { bruckner: '', meiosRefringentes: '', papila: '', escavacao: '', macula: '', fixacao: '', cor: '', relacaoAv: '', amsler: '' },
+      oe: { bruckner: '', meiosRefringentes: '', papila: '', escavacao: '', macula: '', fixacao: '', cor: '', relacaoAv: '', amsler: '' },
       observacoes: '',
     },
 
@@ -612,7 +658,7 @@ export default function AnamneseFichaClinica({ patient, consultation, disabled =
     // 11. Avaliação Motora
     avaliacaoMotora: {
       kappa: { od: '', oe: '' },
-      hirschberg: { od: '', oe: '' },
+      hirschberg: '',
       duccoes: { od: '', oe: '' },
       versoes: { od: { tl: '', tr: '', ml: '', mr: '', bl: '', br: '' }, oe: { tl: '', tr: '', ml: '', mr: '', bl: '', br: '' } },
       observacoes: '',
@@ -620,8 +666,8 @@ export default function AnamneseFichaClinica({ patient, consultation, disabled =
 
     // 12. RX Final
     rxFinal: {
-      od: { esferico: '', cilindrico: '', eixo: '', avLonge: '', avPerto: '', dnp: '', altura: '' },
-      oe: { esferico: '', cilindrico: '', eixo: '', avLonge: '', avPerto: '', dnp: '', altura: '' },
+      od: { esferico: '', cilindrico: '', eixo: '', avLonge: '', avPerto: '', prisma: '', dnp: '', altura: '' },
+      oe: { esferico: '', cilindrico: '', eixo: '', avLonge: '', avPerto: '', prisma: '', dnp: '', altura: '' },
       adicao: '', tipoLente: '', filtro: '', cor: '', tratamento: '', observacoes: '',
     },
 
@@ -646,8 +692,8 @@ export default function AnamneseFichaClinica({ patient, consultation, disabled =
 
     // 15. DX
     dx: {
-      refrativo: '',
-      motor: '',
+      refrativo: { od: '', oe: '', observacoes: '' },
+      motor: { od: '', oe: '', observacoes: '' },
       patologico: '',
       conduta: [],
       controle: [],
@@ -659,6 +705,7 @@ export default function AnamneseFichaClinica({ patient, consultation, disabled =
       tecnica: '',
       od: { resultado: '', ciclosMinuto: '' },
       oe: { resultado: '', ciclosMinuto: '' },
+      adicao: '',
       observacoes: '',
     },
 
@@ -669,11 +716,12 @@ export default function AnamneseFichaClinica({ patient, consultation, disabled =
       observacoes: '',
     },
 
-    // 18. PPC
+    // 17. PPC
     ppc: {
       objetoReal: { semCorrecao: '', comCorrecao: '' },
       luzPontual: { semCorrecao: '', comCorrecao: '' },
       filtroVermelho: { semCorrecao: '', comCorrecao: '' },
+      olhoDominante: '',
       observacoes: '',
     },
 
@@ -720,6 +768,7 @@ export default function AnamneseFichaClinica({ patient, consultation, disabled =
         const medicamentos = separateKnownValues(data?.medicamentos, ANAMNESIS_OPTIONS.medicamentos);
         const antecedentes = separateKnownValues(data?.antecedentes_familiares, ANAMNESIS_OPTIONS.antecedentes);
         const cefaleiaLocal = separateKnownValues(data?.cefaleia_local, ANAMNESIS_OPTIONS.cefaleiaLocal);
+        const cefaleiaMomento = separateKnownValues(data?.cefaleia_frequencia, ANAMNESIS_OPTIONS.cefaleiaMomento);
         const cefaleiaFrequencia = separateKnownValues(data?.cefaleia_frequencia, ANAMNESIS_OPTIONS.cefaleiaFrequencia);
         const lastExamDate = parseApiDateTime(data?.data_ultimo_exame);
 
@@ -741,14 +790,15 @@ export default function AnamneseFichaClinica({ patient, consultation, disabled =
             asBoolean(data?.dificuldade_longe) ? 'Dificuldade Longe' : null,
             asBoolean(data?.dificuldade_perto) ? 'Dificuldade Perto' : null,
           ].filter(Boolean),
-          usoLentes: [
-            asBoolean(data?.uso_lente) ? 'Usa Lente de Contato?' : null,
-            asBoolean(data?.dificuldade_longe) ? 'Dificuldade Longe' : null,
-            asBoolean(data?.dificuldade_perto) ? 'Dificuldade Perto' : null,
-          ].filter(Boolean),
+          usoLentes: data?.uso_lente === null || data?.uso_lente === undefined
+            ? ''
+            : asBoolean(data?.uso_lente)
+              ? 'sim'
+              : 'nao',
           cefaleia: [
             asBoolean(data?.cefaleia) ? 'Dor de cabeça' : null,
             ...cefaleiaLocal.known,
+            ...cefaleiaMomento.known,
             ...cefaleiaFrequencia.known,
           ].filter(Boolean),
           antecedentes: antecedentes.known,
@@ -980,6 +1030,7 @@ export default function AnamneseFichaClinica({ patient, consultation, disabled =
       fixacao: eye?.fixacao ?? '',
       cor: eye?.cor ?? '',
       relacaoAv: eye?.relacao_av ?? eye?.relacaoAv ?? '',
+      amsler: eye?.amsler ?? '',
     });
     const loadSection = async ({ section, setLoading, apply, errorMessage }) => {
       try {
@@ -1079,7 +1130,7 @@ export default function AnamneseFichaClinica({ patient, consultation, disabled =
     const refractionEye = (eye, includeMeasurements = false) => ({
       esferico: eye?.esferico ?? '', cilindrico: eye?.cilindrico ?? '', eixo: eye?.eixo ?? '',
       avLonge: eye?.av_longe ?? eye?.avLonge ?? '', avPerto: eye?.av_perto ?? eye?.avPerto ?? '',
-      ...(includeMeasurements ? { dnp: eye?.dnp ?? '', altura: eye?.altura ?? '' } : {}),
+      ...(includeMeasurements ? { prisma: eye?.prisma ?? '', dnp: eye?.dnp ?? '', altura: eye?.altura ?? '' } : {}),
     });
     const loadSection = async (section, setLoading, apply, message) => {
       try {
@@ -1096,9 +1147,12 @@ export default function AnamneseFichaClinica({ patient, consultation, disabled =
       await loadSection('avaliacao_motora', setLoadingMotorEvaluation, (content) => {
         const emptyVersions = { tl: '', tr: '', ml: '', mr: '', bl: '', br: '' };
         setMotorEvaluationRaw(content);
+        const hirschbergVal = typeof content.hirschberg === 'object' && content.hirschberg !== null
+          ? (content.hirschberg.od || content.hirschberg.oe || '')
+          : (content.hirschberg ?? '');
         setAnamneseData((current) => ({ ...current, avaliacaoMotora: {
           kappa: { od: eyeValue(content.kappa, 'od'), oe: eyeValue(content.kappa, 'oe') },
-          hirschberg: { od: eyeValue(content.hirschberg, 'od'), oe: eyeValue(content.hirschberg, 'oe') },
+          hirschberg: hirschbergVal,
           duccoes: { od: eyeValue(content.duccoes, 'od'), oe: eyeValue(content.duccoes, 'oe') },
           versoes: {
             od: content.versoes?.od && typeof content.versoes.od === 'object' ? { ...emptyVersions, ...content.versoes.od } : emptyVersions,
@@ -1174,9 +1228,21 @@ export default function AnamneseFichaClinica({ patient, consultation, disabled =
         setDxRaw(content);
         const conduta = splitStoredValues(content.conduta);
         if (asBoolean(content.encaminhamento) && !conduta.includes('Encaminhamento')) conduta.push('Encaminhamento');
+        const parseRefrativo = (val) => {
+          if (val && typeof val === 'object' && !Array.isArray(val)) {
+            return { od: val.od ?? '', oe: val.oe ?? '', observacoes: val.observacoes ?? '' };
+          }
+          return { od: val ?? '', oe: val ?? '', observacoes: '' };
+        };
+        const parseMotor = (val) => {
+          if (val && typeof val === 'object' && !Array.isArray(val)) {
+            return { od: val.od ?? '', oe: val.oe ?? '', observacoes: val.observacoes ?? '' };
+          }
+          return { od: val ?? '', oe: val ?? '', observacoes: '' };
+        };
         setAnamneseData((current) => ({ ...current, dx: {
-          refrativo: content.refrativo ?? '',
-          motor: content.motor ?? '',
+          refrativo: parseRefrativo(content.refrativo),
+          motor: parseMotor(content.motor),
           patologico: content.patologico ?? '',
           conduta,
           controle: splitStoredValues(content.controle),
@@ -1191,6 +1257,7 @@ export default function AnamneseFichaClinica({ patient, consultation, disabled =
           tecnica: content.tecnica ?? 'Flipper 40 cm',
           od: { resultado: od.resultado ?? '', ciclosMinuto: od.ciclos_minuto ?? '' },
           oe: { resultado: oe.resultado ?? '', ciclosMinuto: oe.ciclos_minuto ?? '' },
+          adicao: content.adicao ?? '',
           observacoes: content.observacoes ?? '',
         }}));
       }, 'Não foi possível carregar a Flexibilidade e Facilidade de Acomodação.');
@@ -1214,6 +1281,7 @@ export default function AnamneseFichaClinica({ patient, consultation, disabled =
           objetoReal: mapPpc(content.objeto_real),
           luzPontual: mapPpc(content.luz_pontual),
           filtroVermelho: mapPpc(content.filtro_vermelho),
+          olhoDominante: content.olho_dominante ?? '',
           observacoes: content.observacoes ?? '',
         }}));
       }, 'Não foi possível carregar o PPC.');
@@ -1351,6 +1419,23 @@ export default function AnamneseFichaClinica({ patient, consultation, disabled =
     }));
   };
 
+  const updateDxField = (field, eye, value) => {
+    setAnamneseData((current) => ({
+      ...current,
+      dx: {
+        ...current.dx,
+        ...(eye
+          ? {
+              [field]: {
+                ...(typeof current.dx[field] === 'object' && current.dx[field] !== null ? current.dx[field] : {}),
+                [eye]: value,
+              },
+            }
+          : { [field]: value }),
+      },
+    }));
+  };
+
   const toggleDxOption = (field, option) => {
     setAnamneseData((current) => {
       const values = current.dx[field] || [];
@@ -1369,7 +1454,9 @@ export default function AnamneseFichaClinica({ patient, consultation, disabled =
   const updateMotorField = (field, eye, value) => {
     setAnamneseData((current) => ({ ...current, avaliacaoMotora: {
       ...current.avaliacaoMotora,
-      [field]: { ...current.avaliacaoMotora[field], [eye]: value },
+      ...(eye
+        ? { [field]: { ...(typeof current.avaliacaoMotora[field] === 'object' ? current.avaliacaoMotora[field] : {}), [eye]: value } }
+        : { [field]: value }),
     }}));
   };
 
@@ -1390,14 +1477,23 @@ export default function AnamneseFichaClinica({ patient, consultation, disabled =
         const content = data?.conteudo && typeof data.conteudo === 'object' ? data.conteudo : {};
         const od = content.od && typeof content.od === 'object' ? content.od : {};
         const oe = content.oe && typeof content.oe === 'object' ? content.oe : {};
+        const adicaoValue = typeof content.adicao === 'string'
+          ? content.adicao
+          : eyeValue(content.adicao, 'od') || eyeValue(content.adicao, 'oe') || '';
+        const modo = content.modo || (adicaoValue ? 'longe_perto' : 'longe');
+
+        const rawPerto = content.perto && typeof content.perto === 'object' ? content.perto : {};
+        const pertoOd = rawPerto.od || (adicaoValue ? calculateNearEye(od, adicaoValue) : { esferico: '', cilindrico: '', eixo: '', dnp: '' });
+        const pertoOe = rawPerto.oe || (adicaoValue ? calculateNearEye(oe, adicaoValue) : { esferico: '', cilindrico: '', eixo: '', dnp: '' });
+
         setAnamneseData((current) => ({
           ...current,
           ultimoExame: {
+            modo,
             od: {
               esferico: od.esferico ?? '',
               cilindrico: od.cilindrico ?? '',
               eixo: od.eixo ?? '',
-              adicao: eyeValue(content.adicao, 'od'),
               dnp: eyeValue(content.dnp, 'od'),
               alt: eyeValue(content.altura, 'od'),
               lentes: eyeValue(content.tipo_lente, 'od'),
@@ -1406,10 +1502,14 @@ export default function AnamneseFichaClinica({ patient, consultation, disabled =
               esferico: oe.esferico ?? '',
               cilindrico: oe.cilindrico ?? '',
               eixo: oe.eixo ?? '',
-              adicao: eyeValue(content.adicao, 'oe'),
               dnp: eyeValue(content.dnp, 'oe'),
               alt: eyeValue(content.altura, 'oe'),
               lentes: eyeValue(content.tipo_lente, 'oe'),
+            },
+            adicao: adicaoValue,
+            perto: {
+              od: pertoOd,
+              oe: pertoOe,
             },
           },
         }));
@@ -1431,12 +1531,99 @@ export default function AnamneseFichaClinica({ patient, consultation, disabled =
     return () => controller.abort();
   }, [consultation?.id, onNotify]);
 
+  const setLastPrescriptionMode = (mode) => {
+    setAnamneseData((current) => {
+      if (mode === 'longe') {
+        return {
+          ...current,
+          ultimoExame: {
+            ...current.ultimoExame,
+            modo: 'longe',
+            adicao: '',
+            perto: {
+              od: { esferico: '', cilindrico: '', eixo: '', dnp: '' },
+              oe: { esferico: '', cilindrico: '', eixo: '', dnp: '' },
+            },
+          },
+        };
+      }
+
+      const nextAddition = current.ultimoExame.adicao || '1.00';
+      return {
+        ...current,
+        ultimoExame: {
+          ...current.ultimoExame,
+          modo: 'longe_perto',
+          adicao: nextAddition,
+          perto: {
+            od: calculateNearEye(current.ultimoExame.od, nextAddition, current.ultimoExame.perto?.od),
+            oe: calculateNearEye(current.ultimoExame.oe, nextAddition, current.ultimoExame.perto?.oe),
+          },
+        },
+      };
+    });
+  };
+
   const updateLastPrescription = (eye, field, value) => {
+    setAnamneseData((current) => {
+      const updatedEye = { ...current.ultimoExame[eye], [field]: value };
+      const nextUltimoExame = {
+        ...current.ultimoExame,
+        [eye]: updatedEye,
+      };
+
+      if (nextUltimoExame.modo === 'longe_perto' && nextUltimoExame.adicao) {
+        nextUltimoExame.perto = {
+          ...nextUltimoExame.perto,
+          [eye]: calculateNearEye(updatedEye, nextUltimoExame.adicao, nextUltimoExame.perto?.[eye]),
+        };
+      }
+
+      return {
+        ...current,
+        ultimoExame: nextUltimoExame,
+      };
+    });
+  };
+
+  const updateLastPrescriptionAddition = (newAddition) => {
+    setAnamneseData((current) => {
+      const nextUltimoExame = {
+        ...current.ultimoExame,
+        adicao: newAddition,
+      };
+
+      if (newAddition) {
+        nextUltimoExame.perto = {
+          od: calculateNearEye(nextUltimoExame.od, newAddition, nextUltimoExame.perto?.od),
+          oe: calculateNearEye(nextUltimoExame.oe, newAddition, nextUltimoExame.perto?.oe),
+        };
+      } else {
+        nextUltimoExame.perto = {
+          od: { esferico: '', cilindrico: '', eixo: '', dnp: '' },
+          oe: { esferico: '', cilindrico: '', eixo: '', dnp: '' },
+        };
+      }
+
+      return {
+        ...current,
+        ultimoExame: nextUltimoExame,
+      };
+    });
+  };
+
+  const updateLastPrescriptionNear = (eye, field, value) => {
     setAnamneseData((current) => ({
       ...current,
       ultimoExame: {
         ...current.ultimoExame,
-        [eye]: { ...current.ultimoExame[eye], [field]: value },
+        perto: {
+          ...current.ultimoExame.perto,
+          [eye]: {
+            ...current.ultimoExame.perto?.[eye],
+            [field]: value,
+          },
+        },
       },
     }));
   };
@@ -1459,16 +1646,19 @@ export default function AnamneseFichaClinica({ patient, consultation, disabled =
         doencas_sistemicas: joinValues(anamneseData.doencasSistemicas, anamneseData.outrasDoencasSistemicas),
         medicamentos: joinValues(anamneseData.medicamentos, anamneseData.outrosMedicamentos),
         uso_oculos: anamneseData.usoOculos.includes('Usa Óculos'),
-        uso_lente: anamneseData.usoLentes.includes('Usa Lente de Contato?'),
-        dificuldade_longe: anamneseData.usoOculos.includes('Dificuldade Longe') || anamneseData.usoLentes.includes('Dificuldade Longe'),
-        dificuldade_perto: anamneseData.usoOculos.includes('Dificuldade Perto') || anamneseData.usoLentes.includes('Dificuldade Perto'),
+        uso_lente: anamneseData.usoLentes === 'sim',
+        dificuldade_longe: anamneseData.usoOculos.includes('Dificuldade Longe'),
+        dificuldade_perto: anamneseData.usoOculos.includes('Dificuldade Perto'),
         cefaleia: anamneseData.cefaleia.includes('Dor de cabeça'),
         cefaleia_local: joinValues(
           anamneseData.cefaleia.filter((item) => ANAMNESIS_OPTIONS.cefaleiaLocal.includes(item)),
           anamneseData.cefaleiaLocalOutro,
         ),
         cefaleia_frequencia: joinValues(
-          anamneseData.cefaleia.filter((item) => ANAMNESIS_OPTIONS.cefaleiaFrequencia.includes(item)),
+          anamneseData.cefaleia.filter((item) =>
+            ANAMNESIS_OPTIONS.cefaleiaFrequencia.includes(item) ||
+            ANAMNESIS_OPTIONS.cefaleiaMomento.includes(item)
+          ),
           anamneseData.cefaleiaFrequenciaOutro,
         ),
         antecedentes_familiares: joinValues(anamneseData.antecedentes, anamneseData.antecedentesOutros),
@@ -1484,19 +1674,21 @@ export default function AnamneseFichaClinica({ patient, consultation, disabled =
 
   const saveLastPrescription = async () => {
     if (!consultation?.id || disabled || savingLastPrescription) return;
-    const { od, oe } = anamneseData.ultimoExame;
+    const { od, oe, adicao, perto, modo } = anamneseData.ultimoExame;
     setSavingLastPrescription(true);
     try {
       await salvarSecaoFichaClinica(consultation.id, 'prescricao_ultimo_exame', {
+        modo: modo || (adicao ? 'longe_perto' : 'longe'),
         od: { esferico: od.esferico, cilindrico: od.cilindrico, eixo: od.eixo },
         oe: { esferico: oe.esferico, cilindrico: oe.cilindrico, eixo: oe.eixo },
-        adicao: { od: od.adicao, oe: oe.adicao },
+        adicao: { od: adicao || '', oe: adicao || '' },
         dnp: { od: od.dnp, oe: oe.dnp },
         altura: { od: od.alt, oe: oe.alt },
         tipo_lente: { od: od.lentes, oe: oe.lentes },
         filtro: lastPrescriptionExtra.filtro,
         cor: lastPrescriptionExtra.cor,
         observacoes: lastPrescriptionExtra.observacoes,
+        perto: perto,
       });
       markSectionSaveSuccess('prescricaoUltimoExame');
     } catch (error) {
@@ -1680,6 +1872,7 @@ export default function AnamneseFichaClinica({ patient, consultation, disabled =
         fixacao: eye.fixacao,
         cor: eye.cor,
         relacao_av: eye.relacaoAv,
+        amsler: eye.amsler,
       };
     };
     const payload = {
@@ -1757,9 +1950,16 @@ export default function AnamneseFichaClinica({ patient, consultation, disabled =
     if (!consultation?.id || disabled || savingMotorEvaluation) return;
     const data = anamneseData.avaliacaoMotora;
     const versionsFilled = [...Object.values(data.versoes.od), ...Object.values(data.versoes.oe)].some(Boolean);
+    const hirschbergCommon = typeof data.hirschberg === 'object' && data.hirschberg !== null
+      ? (data.hirschberg.od || data.hirschberg.oe || '')
+      : (data.hirschberg ?? '');
     const payload = {
       kappa: { ...(typeof motorEvaluationRaw.kappa === 'object' ? motorEvaluationRaw.kappa : {}), ...data.kappa },
-      hirschberg: { ...(typeof motorEvaluationRaw.hirschberg === 'object' ? motorEvaluationRaw.hirschberg : {}), ...data.hirschberg },
+      hirschberg: {
+        ...(typeof motorEvaluationRaw.hirschberg === 'object' ? motorEvaluationRaw.hirschberg : {}),
+        od: hirschbergCommon,
+        oe: hirschbergCommon,
+      },
       duccoes: { ...(typeof motorEvaluationRaw.duccoes === 'object' ? motorEvaluationRaw.duccoes : {}), ...data.duccoes },
       versoes: versionsFilled ? data.versoes : (motorEvaluationRaw.versoes ?? data.versoes),
       observacoes: data.observacoes,
@@ -1777,19 +1977,84 @@ export default function AnamneseFichaClinica({ patient, consultation, disabled =
     delete preserved.avLonge; delete preserved.avPerto;
     return { ...preserved, esferico: eye.esferico, cilindrico: eye.cilindrico, eixo: eye.eixo,
       av_longe: eye.avLonge, av_perto: eye.avPerto,
-      ...(includeMeasurements ? { dnp: eye.dnp, altura: eye.altura } : {}) };
+      ...(includeMeasurements ? { prisma: eye.prisma, dnp: eye.dnp, altura: eye.altura } : {}) };
   };
 
   const saveFinalRx = async () => {
     if (!consultation?.id || disabled || savingFinalRx) return;
     const data = anamneseData.rxFinal;
-    const payload = { od: buildRefractionEyePayload(data.od, finalRxRaw.od, true), oe: buildRefractionEyePayload(data.oe, finalRxRaw.oe, true),
-      adicao: data.adicao, tipo_lente: data.tipoLente, filtro: data.filtro, cor: data.cor,
-      tratamento: data.tratamento, observacoes: data.observacoes };
+    const payload = {
+      od: buildRefractionEyePayload(data.od, finalRxRaw.od, true),
+      oe: buildRefractionEyePayload(data.oe, finalRxRaw.oe, true),
+      adicao: data.adicao,
+      tipo_lente: data.tipoLente,
+      filtro: data.filtro,
+      cor: data.cor,
+      tratamento: data.tratamento,
+      observacoes: data.observacoes,
+    };
     setSavingFinalRx(true);
-    try { await salvarSecaoFichaClinica(consultation.id, 'rx_final', payload); setFinalRxRaw(payload); markSectionSaveSuccess('rxFinal'); }
-    catch (error) { notifySaveError(getErrorMessage(error, 'Não foi possível salvar o RX Final.')); }
-    finally { setSavingFinalRx(false); }
+    try {
+      await salvarSecaoFichaClinica(consultation.id, 'rx_final', payload);
+      setFinalRxRaw(payload);
+      markSectionSaveSuccess('rxFinal');
+
+      // Sincronização automática com a Prescrição de Óculos
+      try {
+        const lens = [data.tipoLente, data.filtro, data.cor, data.tratamento].filter(Boolean).join(' - ');
+        const modo = data.adicao ? 'longe_perto' : 'longe';
+        const nearOd = modo === 'longe_perto' && data.adicao ? calculateNearEye(data.od, data.adicao) : {};
+        const nearOe = modo === 'longe_perto' && data.adicao ? calculateNearEye(data.oe, data.adicao) : {};
+
+        const prescriptionPayload = {
+          titulo: 'Prescrição para Óculos',
+          modo,
+          od_esferico: data.od?.esferico || '',
+          od_cilindrico: data.od?.cilindrico || '',
+          od_eixo: data.od?.eixo || '',
+          od_av: data.od?.avLonge || '',
+          od_prisma: data.od?.prisma || '',
+          od_dnp: data.od?.dnp || '',
+          oe_esferico: data.oe?.esferico || '',
+          oe_cilindrico: data.oe?.cilindrico || '',
+          oe_eixo: data.oe?.eixo || '',
+          oe_av: data.oe?.avLonge || '',
+          oe_prisma: data.oe?.prisma || '',
+          oe_dnp: data.oe?.dnp || '',
+          od_perto_esferico: nearOd?.esferico || '',
+          od_perto_cilindrico: nearOd?.cilindrico || '',
+          od_perto_eixo: nearOd?.eixo || '',
+          od_perto_av: nearOd?.av || data.od?.avPerto || '',
+          od_perto_prisma: nearOd?.prisma || data.od?.prisma || '',
+          od_perto_dnp: nearOd?.dnp || '',
+          oe_perto_esferico: nearOe?.esferico || '',
+          oe_perto_cilindrico: nearOe?.cilindrico || '',
+          oe_perto_eixo: nearOe?.eixo || '',
+          oe_perto_av: nearOe?.av || data.oe?.avPerto || '',
+          oe_perto_prisma: nearOe?.prisma || data.oe?.prisma || '',
+          oe_perto_dnp: nearOe?.dnp || '',
+          adicao: data.adicao || '',
+          lente: lens || '',
+          observacoes: data.observacoes || '',
+        };
+
+        const existingPrescriptions = await listarPrescricoesConsulta(consultation.id);
+        if (Array.isArray(existingPrescriptions) && existingPrescriptions.length > 0) {
+          await atualizarPrescricaoConsulta(consultation.id, existingPrescriptions[0].id, prescriptionPayload);
+        } else {
+          await criarPrescricaoConsulta(consultation.id, prescriptionPayload);
+        }
+
+        window.dispatchEvent(new CustomEvent('prescription-updated', { detail: { consultationId: consultation.id } }));
+      } catch (prescErr) {
+        // Falha não impeditiva na sincronização da prescrição
+        console.warn('Erro ao sincronizar prescrição automaticamente a partir do RX Final:', prescErr);
+      }
+    } catch (error) {
+      notifySaveError(getErrorMessage(error, 'Não foi possível salvar o RX Final.'));
+    } finally {
+      setSavingFinalRx(false);
+    }
   };
 
   const saveAccommodationAmplitude = async () => {
@@ -1821,8 +2086,12 @@ export default function AnamneseFichaClinica({ patient, consultation, disabled =
   const saveDx = async () => {
     if (!consultation?.id || disabled || savingDx) return;
     const data = anamneseData.dx;
-    if (![data.refrativo, data.motor, data.patologico].some((value) => String(value || '').trim())) {
-      notifySaveError('Informe ao menos um diagnóstico refrativo, motor ou ocular.');
+    const hasRefrativo = Boolean(data.refrativo?.od?.trim() || data.refrativo?.oe?.trim() || (typeof data.refrativo === 'string' && data.refrativo.trim()));
+    const hasMotor = Boolean(data.motor?.od?.trim() || data.motor?.oe?.trim() || (typeof data.motor === 'string' && data.motor.trim()));
+    const hasPatologico = Boolean(data.patologico?.trim());
+
+    if (!hasRefrativo && !hasMotor && !hasPatologico) {
+      notifySaveError('Informe ao menos um diagnóstico refrativo, motor ou patológico.');
       return;
     }
     const payload = {
@@ -1857,6 +2126,7 @@ export default function AnamneseFichaClinica({ patient, consultation, disabled =
       tecnica: data.tecnica,
       od: buildEye(data.od, accommodationFacilityRaw.od),
       oe: buildEye(data.oe, accommodationFacilityRaw.oe),
+      adicao: data.adicao,
       observacoes: data.observacoes,
     };
     setSavingAccommodationFacility(true);
@@ -1904,6 +2174,7 @@ export default function AnamneseFichaClinica({ patient, consultation, disabled =
       objeto_real: buildMeasurement(data.objetoReal, ppcRaw.objeto_real),
       luz_pontual: buildMeasurement(data.luzPontual, ppcRaw.luz_pontual),
       filtro_vermelho: buildMeasurement(data.filtroVermelho, ppcRaw.filtro_vermelho),
+      olho_dominante: data.olhoDominante ?? '',
       observacoes: data.observacoes,
     };
     setSavingPpc(true);
@@ -2022,8 +2293,13 @@ export default function AnamneseFichaClinica({ patient, consultation, disabled =
 
   const saveAllClinicalSections = async () => {
     if (!consultation?.id || disabled || savingAllSections || isAnySectionLoading || isAnySectionSaving) return;
-    const hasDxDiagnosis = [anamneseData.dx.refrativo, anamneseData.dx.motor, anamneseData.dx.patologico]
-      .some((value) => String(value || '').trim());
+    const hasDxDiagnosis = Boolean(
+      anamneseData.dx.refrativo?.od?.trim() || anamneseData.dx.refrativo?.oe?.trim() ||
+      (typeof anamneseData.dx.refrativo === 'string' && anamneseData.dx.refrativo.trim()) ||
+      anamneseData.dx.motor?.od?.trim() || anamneseData.dx.motor?.oe?.trim() ||
+      (typeof anamneseData.dx.motor === 'string' && anamneseData.dx.motor.trim()) ||
+      anamneseData.dx.patologico?.trim()
+    );
 
     const sectionSaveMap = {
       anamnese: saveAnamnesis,
@@ -2178,105 +2454,10 @@ export default function AnamneseFichaClinica({ patient, consultation, disabled =
     });
   };
 
-  return (
-    <div ref={containerRef} className={`space-y-4 ${disabled ? 'opacity-80' : ''}`}>
-      
-      {/* Sub navigation: Início vs Histórico */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-2 border-b border-slate-100">
-        <div className="flex items-center space-x-1 bg-slate-100/80 p-1 rounded-xl border border-slate-200/60 text-xs font-bold">
-          <button
-            onClick={() => setSubTab('inicio')}
-            className={`px-3.5 py-1.5 rounded-lg transition-all flex items-center space-x-1.5 ${
-              subTab === 'inicio' 
-                ? 'bg-forest-700 text-white shadow-hairline' 
-                : 'text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            <FileText className="w-3.5 h-3.5" />
-            <span>Início (Ficha Clínica da Consulta)</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setSubTab('historico')}
-            className={`px-3.5 py-1.5 rounded-lg transition-all flex items-center space-x-1.5 ${
-              subTab === 'historico' 
-                ? 'bg-forest-700 text-white shadow-hairline' 
-                : 'text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            <History className="w-3.5 h-3.5" />
-            <span>Histórico de Fichas Anteriores</span>
-          </button>
-        </div>
-
-        {subTab === 'inicio' && (
-          <div className="flex items-center space-x-2">
-            <button 
-              onClick={() => toggleAll(true)}
-              className="btn-secondary py-1.5 px-3"
-            >
-              Expandir Todos
-            </button>
-            <button 
-              onClick={() => toggleAll(false)}
-              className="btn-secondary py-1.5 px-3"
-            >
-              Recolher Todos
-            </button>
-            <button 
-              type="button"
-              disabled={disabled || savingAllSections || isAnySectionLoading || isAnySectionSaving}
-              onClick={saveAllClinicalSections}
-              className={saveButtonClass('allClinicalSections')}
-            >
-              {savingAllSections ? <Clock className="w-3.5 h-3.5 animate-spin" /> : savedSection === 'allClinicalSections' ? <Check className="w-3.5 h-3.5" /> : <Save className="w-3.5 h-3.5" />}
-              <span>{savingAllSections ? 'Salvando...' : savedSection === 'allClinicalSections' ? 'Salvo com sucesso' : 'Salvar Ficha'}</span>
-            </button>
-          </div>
-        )}
-      </div>
-
-      {/* ========================================================================= */}
-      {/* SUBTAB 1: INÍCIO (ACCORDIONS DE TODOS OS CAMPOS FECHADOS POR PADRÃO)      */}
-      {/* ========================================================================= */}
-      {subTab === 'inicio' && (
-        <fieldset disabled={savingAllSections} className="space-y-2 disabled:opacity-75">
-
-          {/* Mensagem caso todas as seções estejam desativadas */}
-          {clinicalConfig.length > 0 && clinicalConfig.every(s => s.enabled === false) && (
-            <div className="p-8 text-center bg-slate-50 border border-dashed border-slate-300 rounded-2xl">
-              <FileText className="w-10 h-10 text-slate-400 mx-auto mb-2" />
-              <h4 className="font-bold text-sm text-slate-800">Nenhuma seção ativa na Ficha Clínica</h4>
-              <p className="text-xs text-slate-500 mt-1 max-w-md mx-auto">
-                Todas as seções da ficha clínica estão desativadas no momento. Acesse a tela de Configurações para ativar as seções desejadas.
-              </p>
-            </div>
-          )}
-
-          {/* 1. ANAMNESE */}
-          {isSectionEnabled('anamnese') && (
-            <div data-clinical-section="anamnese" className="border border-slate-200/90 rounded-2xl bg-white shadow-hairline overflow-hidden transition-all">
-              <button
-                onClick={() => toggleSection('anamnese')}
-                className="w-full p-3.5 sm:p-4 flex items-center justify-between bg-slate-50/80 hover:bg-forest-50/20 text-left transition-colors font-bold text-xs uppercase text-slate-900 border-b border-slate-100"
-              >
-                <div className="flex items-center space-x-2">
-                  {openSections['anamnese'] ? <ChevronDown className="w-4 h-4 text-forest-700" /> : <ChevronRight className="w-4 h-4 text-slate-400" />}
-                  <span>1. Anamnese</span>
-                </div>
-                {openSections['anamnese'] ? (
-                  <span className="text-[10px] font-bold text-forest-800 bg-forest-50 px-2 py-0.5 rounded-md border border-forest-200/80 uppercase">
-                    Aberto
-                  </span>
-                ) : (
-                  <span className="text-[10px] font-bold text-slate-500 uppercase">
-                    Abrir
-                  </span>
-                )}
-              </button>
-
-              {openSections['anamnese'] && (
+  const renderSectionContent = (sectionId) => {
+    switch (sectionId) {
+      case 'anamnese':
+        return (
                 <div className="p-5 sm:p-6 space-y-4 text-xs animate-fade-in bg-white">
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                     <div className="md:col-span-2">
@@ -2309,11 +2490,7 @@ export default function AnamneseFichaClinica({ patient, consultation, disabled =
                   <div>
                     <span className="font-extrabold text-slate-900 uppercase block mb-1.5">Sintomas</span>
                     <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 gap-2">
-                      {[
-                        "Prurido", "Fotofobia", "Hiperemia", "Pterígio", "Epífera", "Trauma", 
-                        "Vermelhidão", "Ardência", "Dor Ocular", "Lacrimejamento", "Força a Visão", 
-                        "Cansaço Visual", "Sensibilidade à Luz"
-                      ].map(s => {
+                      {ANAMNESIS_OPTIONS.sintomas.map(s => {
                         const checked = anamneseData.sintomas.includes(s);
                         return (
                           <label key={s} className="flex items-center space-x-1.5 cursor-pointer bg-slate-50/80 p-2 rounded-xl border border-slate-200/80 text-[11px] font-semibold text-slate-800 hover:bg-forest-50/60 hover:border-forest-200 transition-all">
@@ -2421,40 +2598,210 @@ export default function AnamneseFichaClinica({ patient, consultation, disabled =
 
                     <div className="p-4 bg-slate-50/60 rounded-2xl border border-slate-200/80 space-y-2">
                       <span className="font-extrabold text-slate-900 uppercase block text-[11px]">Uso de Lentes de Contato</span>
-                      {["Usa Lente de Contato?", "Dificuldade Longe", "Dificuldade Perto"].map(l => (
-                        <label key={l} className="flex items-center space-x-1.5 text-xs font-medium cursor-pointer">
-                          <input type="checkbox" checked={anamneseData.usoLentes.includes(l)} onChange={() => toggleArrayItem('usoLentes', l)} className="accent-forest-700" />
-                          <span>{l}</span>
+                      {[
+                        { label: 'Sim', value: 'sim' },
+                        { label: 'Não', value: 'nao' },
+                      ].map(opt => (
+                        <label key={opt.value} className="flex items-center space-x-1.5 text-xs font-medium cursor-pointer">
+                          <input
+                            type="radio"
+                            name="usoLentes"
+                            checked={anamneseData.usoLentes === opt.value}
+                            onClick={() => {
+                              if (anamneseData.usoLentes === opt.value) {
+                                setAnamneseData(prev => ({ ...prev, usoLentes: '' }));
+                              }
+                            }}
+                            onChange={() => setAnamneseData(prev => ({ ...prev, usoLentes: opt.value }))}
+                            className="accent-forest-700 cursor-pointer"
+                          />
+                          <span>{opt.label}</span>
                         </label>
                       ))}
                     </div>
 
                     <div className="p-4 bg-slate-50/60 rounded-2xl border border-slate-200/80 space-y-2">
                       <span className="font-extrabold text-slate-900 uppercase block text-[11px]">Antecedentes Familiares</span>
-                      {["Diabetes", "Estrabismo", "Glaucoma", "Pressão Alta", "Catarata", "Alguém usa óculos?"].map(a => (
+                      {ANAMNESIS_OPTIONS.antecedentes.map(a => (
                         <label key={a} className="flex items-center space-x-1.5 text-xs font-medium cursor-pointer">
                           <input type="checkbox" checked={anamneseData.antecedentes.includes(a)} onChange={() => toggleArrayItem('antecedentes', a)} className="accent-forest-700" />
                           <span>{a}</span>
                         </label>
                       ))}
+                      <div className="pt-1">
+                        <input
+                          type="text"
+                          placeholder="Outros antecedentes..."
+                          value={anamneseData.antecedentesOutros || ''}
+                          onChange={(e) => setAnamneseData(prev => ({ ...prev, antecedentesOutros: e.target.value }))}
+                          className="clinical-input text-[11px] py-1 px-2 h-7"
+                        />
+                      </div>
                     </div>
                   </div>
 
-                  {/* Cefaleia */}
-                  <div className="p-4 bg-slate-50/60 rounded-2xl border border-slate-200/80 space-y-2">
-                    <span className="font-extrabold text-slate-900 uppercase block text-[11px]">Cefaleia (Dor de Cabeça)</span>
-                    <div className="grid grid-cols-2 sm:grid-cols-5 md:grid-cols-8 gap-2">
-                      {[
-                        "Dor de cabeça", "Frontal", "Temporal", "Occipital", "Parietal", "Todo o dia", 
-                        "Eventual", "Segue o sexo", "Fim de semana", "Manhã", "Tarde", "Noite", 
-                        "Infrequente", "Frequente", "Crônica"
-                      ].map(c => (
-                        <label key={c} className="flex items-center space-x-1.5 text-[11px] font-medium cursor-pointer">
-                          <input type="checkbox" checked={anamneseData.cefaleia.includes(c)} onChange={() => toggleArrayItem('cefaleia', c)} className="accent-forest-700" />
-                          <span>{c}</span>
-                        </label>
-                      ))}
+                  {/* Cefaleia - Fluxo Sequencial de Atendimento Clínico */}
+                  <div className="p-4 bg-slate-50/60 rounded-2xl border border-slate-200/80 space-y-3">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2 border-b border-slate-200/70">
+                      <div>
+                        <span className="font-extrabold text-slate-900 uppercase block text-[11px]">
+                          Investigação de Cefaleia (Dor de Cabeça)
+                        </span>
+                      </div>
+                      <div className="inline-flex bg-slate-200/70 p-0.5 rounded-xl">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (!anamneseData.cefaleia.includes('Dor de cabeça')) {
+                              setAnamneseData(prev => ({
+                                ...prev,
+                                cefaleia: [...prev.cefaleia.filter(c => c !== 'Dor de cabeça'), 'Dor de cabeça']
+                              }));
+                            }
+                          }}
+                          className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${
+                            anamneseData.cefaleia.includes('Dor de cabeça')
+                              ? 'bg-forest-700 text-white shadow-hairline'
+                              : 'text-slate-600 hover:text-slate-900'
+                          }`}
+                        >
+                          Apresenta Cefaleia
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setAnamneseData(prev => ({
+                              ...prev,
+                              cefaleia: prev.cefaleia.filter(c => c !== 'Dor de cabeça')
+                            }));
+                          }}
+                          className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${
+                            !anamneseData.cefaleia.includes('Dor de cabeça')
+                              ? 'bg-forest-700 text-white shadow-hairline'
+                              : 'text-slate-600 hover:text-slate-900'
+                          }`}
+                        >
+                          Nega Cefaleia
+                        </button>
+                      </div>
                     </div>
+
+                    {anamneseData.cefaleia.includes('Dor de cabeça') ? (
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5 pt-1 animate-fade-in">
+                        {/* Etapa 1: Região / Localização */}
+                        <div className="bg-white p-3 rounded-xl border border-slate-200/80 space-y-2.5 shadow-hairline flex flex-col justify-between">
+                          <div className="space-y-2">
+                            <div className="flex items-center gap-1.5 pb-1 border-b border-slate-100">
+                              <span className="w-5 h-5 rounded-full bg-forest-100 text-forest-800 text-[10px] font-extrabold flex items-center justify-center">1</span>
+                              <span className="font-bold text-slate-800 text-[11px] uppercase">Região / Localização</span>
+                            </div>
+                            <div className="grid grid-cols-2 gap-1.5">
+                              {ANAMNESIS_OPTIONS.cefaleiaLocal.map(loc => (
+                                <label
+                                  key={loc}
+                                  className={`flex items-center space-x-1.5 text-xs font-medium px-2 py-1.5 rounded-lg border cursor-pointer transition-colors ${
+                                    anamneseData.cefaleia.includes(loc)
+                                      ? 'bg-forest-50/70 border-forest-300 text-forest-900 font-semibold'
+                                      : 'bg-slate-50/50 border-slate-200/70 text-slate-700 hover:bg-slate-100/60'
+                                  }`}
+                                >
+                                  <input
+                                    type="checkbox"
+                                    checked={anamneseData.cefaleia.includes(loc)}
+                                    onChange={() => toggleArrayItem('cefaleia', loc)}
+                                    className="accent-forest-700 rounded"
+                                  />
+                                  <span>{loc}</span>
+                                </label>
+                              ))}
+                            </div>
+                          </div>
+                          <div>
+                            <input
+                              type="text"
+                              placeholder="Outro local..."
+                              value={anamneseData.cefaleiaLocalOutro || ''}
+                              onChange={(e) => setAnamneseData(prev => ({ ...prev, cefaleiaLocalOutro: e.target.value }))}
+                              className="clinical-input text-[11px] py-1 px-2 h-7"
+                            />
+                          </div>
+                        </div>
+
+                        {/* Etapa 2: Período / Momento */}
+                        <div className="bg-white p-3 rounded-xl border border-slate-200/80 space-y-2.5 shadow-hairline flex flex-col justify-between">
+                          <div className="space-y-2">
+                            <div className="flex items-center gap-1.5 pb-1 border-b border-slate-100">
+                              <span className="w-5 h-5 rounded-full bg-forest-100 text-forest-800 text-[10px] font-extrabold flex items-center justify-center">2</span>
+                              <span className="font-bold text-slate-800 text-[11px] uppercase">Período / Momento</span>
+                            </div>
+                            <div className="grid grid-cols-2 gap-1.5">
+                              {ANAMNESIS_OPTIONS.cefaleiaMomento.map(mom => (
+                                <label
+                                  key={mom}
+                                  className={`flex items-center space-x-1.5 text-xs font-medium px-2 py-1.5 rounded-lg border cursor-pointer transition-colors ${
+                                    anamneseData.cefaleia.includes(mom)
+                                      ? 'bg-forest-50/70 border-forest-300 text-forest-900 font-semibold'
+                                      : 'bg-slate-50/50 border-slate-200/70 text-slate-700 hover:bg-slate-100/60'
+                                  }`}
+                                >
+                                  <input
+                                    type="checkbox"
+                                    checked={anamneseData.cefaleia.includes(mom)}
+                                    onChange={() => toggleArrayItem('cefaleia', mom)}
+                                    className="accent-forest-700 rounded"
+                                  />
+                                  <span>{mom}</span>
+                                </label>
+                              ))}
+                            </div>
+                          </div>
+                          <p className="text-[10px] text-slate-400 italic">Identifica padrão diurno ou fadiga de telas.</p>
+                        </div>
+
+                        {/* Etapa 3: Frequência / Padrão */}
+                        <div className="bg-white p-3 rounded-xl border border-slate-200/80 space-y-2.5 shadow-hairline flex flex-col justify-between">
+                          <div className="space-y-2">
+                            <div className="flex items-center gap-1.5 pb-1 border-b border-slate-100">
+                              <span className="w-5 h-5 rounded-full bg-forest-100 text-forest-800 text-[10px] font-extrabold flex items-center justify-center">3</span>
+                              <span className="font-bold text-slate-800 text-[11px] uppercase">Frequência / Padrão</span>
+                            </div>
+                            <div className="grid grid-cols-2 gap-1.5">
+                              {ANAMNESIS_OPTIONS.cefaleiaFrequencia.map(freq => (
+                                <label
+                                  key={freq}
+                                  className={`flex items-center space-x-1.5 text-xs font-medium px-2 py-1.5 rounded-lg border cursor-pointer transition-colors ${
+                                    anamneseData.cefaleia.includes(freq)
+                                      ? 'bg-forest-50/70 border-forest-300 text-forest-900 font-semibold'
+                                      : 'bg-slate-50/50 border-slate-200/70 text-slate-700 hover:bg-slate-100/60'
+                                  }`}
+                                >
+                                  <input
+                                    type="checkbox"
+                                    checked={anamneseData.cefaleia.includes(freq)}
+                                    onChange={() => toggleArrayItem('cefaleia', freq)}
+                                    className="accent-forest-700 rounded"
+                                  />
+                                  <span className="truncate" title={freq}>{freq}</span>
+                                </label>
+                              ))}
+                            </div>
+                          </div>
+                          <div>
+                            <input
+                              type="text"
+                              placeholder="Outra frequência..."
+                              value={anamneseData.cefaleiaFrequenciaOutro || ''}
+                              onChange={(e) => setAnamneseData(prev => ({ ...prev, cefaleiaFrequenciaOutro: e.target.value }))}
+                              className="clinical-input text-[11px] py-1 px-2 h-7"
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="py-3 px-4 bg-white/80 rounded-xl border border-dashed border-slate-200 text-center text-xs text-slate-500 font-medium">
+                        Paciente não refere queixas de cefaleia ou dor de cabeça.
+                      </div>
+                    )}
                   </div>
 
                   {/* Observações da Anamnese */}
@@ -2484,34 +2831,37 @@ export default function AnamneseFichaClinica({ patient, consultation, disabled =
                     </button>
                   </div>
                 </div>
-              )}
-            </div>
-          )}
-
-          {/* 2. PRESCRIÇÃO DO ÚLTIMO EXAME */}
-          {isSectionEnabled('prescricaoUltimoExame') && (
-            <div data-clinical-section="prescricaoUltimoExame" className="border border-slate-200/90 rounded-2xl bg-white shadow-hairline overflow-hidden transition-all">
-              <button
-                onClick={() => toggleSection('prescricaoUltimoExame')}
-                className="w-full p-3.5 flex items-center justify-between bg-slate-50 hover:bg-forest-50/50 text-left transition-colors font-extrabold text-xs uppercase text-slate-900"
-              >
-                <div className="flex items-center space-x-2">
-                  {openSections['prescricaoUltimoExame'] ? <ChevronDown className="w-4 h-4 text-forest-700" /> : <ChevronRight className="w-4 h-4 text-slate-400" />}
-                  <span>2. Prescrição do Último Exame</span>
-                </div>
-                {openSections['prescricaoUltimoExame'] ? (
-                  <span className="text-[10px] font-bold text-forest-800 bg-forest-50 px-2 py-0.5 rounded-md border border-forest-200/80 uppercase">
-                    Aberto
-                  </span>
-                ) : (
-                  <span className="text-[10px] font-bold text-slate-500 uppercase">
-                    Abrir
-                  </span>
-                )}
-              </button>
-
-              {openSections['prescricaoUltimoExame'] && (
+        );
+      case 'prescricaoUltimoExame':
+        return (
                 <div className="p-4 space-y-3 text-xs border-t border-slate-200 animate-fade-in">
+                  <div className="flex items-center justify-between pb-1">
+                    <div className="inline-flex bg-slate-100/80 p-1 rounded-xl border border-slate-200/60" role="group" aria-label="Modo da prescrição">
+                      <button
+                        type="button"
+                        onClick={() => setLastPrescriptionMode('longe')}
+                        className={`px-3.5 py-1.5 text-xs font-bold rounded-lg transition-all ${
+                          anamneseData.ultimoExame.modo !== 'longe_perto'
+                            ? 'bg-forest-700 text-white shadow-hairline'
+                            : 'text-slate-600 hover:text-slate-900'
+                        }`}
+                      >
+                        Longe
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setLastPrescriptionMode('longe_perto')}
+                        className={`px-3.5 py-1.5 text-xs font-bold rounded-lg transition-all ${
+                          anamneseData.ultimoExame.modo === 'longe_perto'
+                            ? 'bg-forest-700 text-white shadow-hairline'
+                            : 'text-slate-600 hover:text-slate-900'
+                        }`}
+                      >
+                        Longe e Perto
+                      </button>
+                    </div>
+                  </div>
+
                   <div className="overflow-x-auto border border-slate-200/80 rounded-2xl shadow-hairline my-2"><table className="w-full text-center border-collapse text-xs">
                       <thead>
                         <tr className="bg-slate-100 border-b border-slate-200/80 font-extrabold text-[11px] text-slate-700 uppercase">
@@ -2519,7 +2869,6 @@ export default function AnamneseFichaClinica({ patient, consultation, disabled =
                           <th className="py-2 px-3">Esférico</th>
                           <th className="py-2 px-3">Cilíndrico</th>
                           <th className="py-2 px-3">Eixo</th>
-                          <th className="py-2 px-3">Adição</th>
                           <th className="py-2 px-3">DNP</th>
                           <th className="py-2 px-3">Alt</th>
                           <th className="py-2 px-3">Lentes</th>
@@ -2529,10 +2878,9 @@ export default function AnamneseFichaClinica({ patient, consultation, disabled =
                         {['od', 'oe'].map(eye => (
                           <tr key={eye}>
                             <td className="py-2 px-3 text-left font-bold font-sans uppercase">{eye === 'od' ? 'Olho Direito (OD)' : 'Olho Esquerdo (OE)'}</td>
-                            <td className="py-1 px-1"><input type="number" step="0.25" value={anamneseData.ultimoExame[eye].esferico} onChange={(event) => updateLastPrescription(eye, 'esferico', event.target.value)} className="clinical-input h-8 text-center font-mono font-bold text-xs" /></td>
-                            <td className="py-1 px-1"><input type="number" step="0.25" value={anamneseData.ultimoExame[eye].cilindrico} onChange={(event) => updateLastPrescription(eye, 'cilindrico', event.target.value)} className="clinical-input h-8 text-center font-mono font-bold text-xs" /></td>
-                            <td className="py-1 px-1"><input type="number" min="0" max="180" value={anamneseData.ultimoExame[eye].eixo} onChange={(event) => updateLastPrescription(eye, 'eixo', event.target.value)} className="clinical-input h-8 text-center font-mono font-bold text-xs" /></td>
-                            <td className="py-1 px-1"><input type="number" step="0.25" value={anamneseData.ultimoExame[eye].adicao} onChange={(event) => updateLastPrescription(eye, 'adicao', event.target.value)} className="clinical-input h-8 text-center font-mono font-bold text-xs" /></td>
+                            <td className="py-1 px-1"><input type="number" step="0.25" value={anamneseData.ultimoExame[eye].esferico} onChange={(event) => updateLastPrescription(eye, 'esferico', event.target.value)} onBlur={(event) => updateLastPrescription(eye, 'esferico', formatDiopter(event.target.value))} className="clinical-input h-8 text-center font-mono font-bold text-xs" /></td>
+                            <td className="py-1 px-1"><input type="number" step="0.25" value={anamneseData.ultimoExame[eye].cilindrico} onChange={(event) => updateLastPrescription(eye, 'cilindrico', event.target.value)} onBlur={(event) => updateLastPrescription(eye, 'cilindrico', formatDiopter(event.target.value))} className="clinical-input h-8 text-center font-mono font-bold text-xs" /></td>
+                            <td className="py-1 px-1"><input type="number" min="0" max="180" step="1" value={anamneseData.ultimoExame[eye].eixo} onChange={(event) => updateLastPrescription(eye, 'eixo', event.target.value)} onBlur={(event) => updateLastPrescription(eye, 'eixo', formatAxis(event.target.value))} className="clinical-input h-8 text-center font-mono font-bold text-xs" /></td>
                             <td className="py-1 px-1"><input type="text" value={anamneseData.ultimoExame[eye].dnp} onChange={(event) => updateLastPrescription(eye, 'dnp', event.target.value)} className="clinical-input h-8 text-center font-mono font-bold text-xs" /></td>
                             <td className="py-1 px-1"><input type="text" value={anamneseData.ultimoExame[eye].alt} onChange={(event) => updateLastPrescription(eye, 'alt', event.target.value)} className="clinical-input h-8 text-center font-mono font-bold text-xs" /></td>
                             <td className="py-1 px-1"><input type="text" value={anamneseData.ultimoExame[eye].lentes} onChange={(event) => updateLastPrescription(eye, 'lentes', event.target.value)} className="clinical-input h-8 text-xs font-medium" /></td>
@@ -2541,6 +2889,99 @@ export default function AnamneseFichaClinica({ patient, consultation, disabled =
                       </tbody>
                     </table>
                   </div>
+
+                  {/* Quando modo Longe e Perto ativo */}
+                  {anamneseData.ultimoExame.modo === 'longe_perto' && (
+                    <>
+                      <label className="block max-w-xs pt-1">
+                        <span className="block font-bold text-slate-700 text-xs mb-1">Adição (D)</span>
+                        <input
+                          type="number"
+                          step="0.25"
+                          min="0.25"
+                          value={anamneseData.ultimoExame.adicao || ''}
+                          onChange={(event) => updateLastPrescriptionAddition(event.target.value)}
+                          onBlur={(event) => {
+                            if (event.target.value) {
+                              updateLastPrescriptionAddition(formatDiopter(event.target.value));
+                            }
+                          }}
+                          className="clinical-input font-mono font-bold text-center h-8 w-28"
+                          placeholder="1.00"
+                        />
+                      </label>
+
+                      <div className="space-y-1.5 animate-fade-in pt-1">
+                        <div className="px-1">
+                          <span className="font-extrabold text-slate-900 text-xs uppercase tracking-wide">
+                            Visão de Perto
+                          </span>
+                        </div>
+                        <div className="overflow-x-auto border border-slate-200/80 rounded-2xl shadow-hairline bg-white">
+                          <table className="w-full text-center border-collapse text-xs">
+                            <thead>
+                              <tr className="bg-slate-100 border-b border-slate-200/80 font-extrabold text-[11px] text-slate-700 uppercase">
+                                <th className="py-2 px-3 text-left">Olho</th>
+                                <th className="py-2 px-3">Esférico</th>
+                                <th className="py-2 px-3">Cilíndrico</th>
+                                <th className="py-2 px-3">Eixo</th>
+                                <th className="py-2 px-3">DNP</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-200 font-mono">
+                              {['od', 'oe'].map(eye => (
+                                <tr key={`ultimo-exame-perto-${eye}`}>
+                                  <td className="py-2 px-3 text-left font-bold font-sans uppercase">
+                                    {eye === 'od' ? 'Olho Direito (OD)' : 'Olho Esquerdo (OE)'}
+                                  </td>
+                                  <td className="py-1 px-1">
+                                    <input
+                                      type="number"
+                                      step="0.25"
+                                      value={anamneseData.ultimoExame.perto?.[eye]?.esferico ?? ''}
+                                      onChange={(event) => updateLastPrescriptionNear(eye, 'esferico', event.target.value)}
+                                      onBlur={(event) => updateLastPrescriptionNear(eye, 'esferico', formatDiopter(event.target.value))}
+                                      className="clinical-input h-8 text-center font-mono font-bold text-xs bg-white"
+                                    />
+                                  </td>
+                                  <td className="py-1 px-1">
+                                    <input
+                                      type="number"
+                                      step="0.25"
+                                      value={anamneseData.ultimoExame.perto?.[eye]?.cilindrico ?? ''}
+                                      onChange={(event) => updateLastPrescriptionNear(eye, 'cilindrico', event.target.value)}
+                                      onBlur={(event) => updateLastPrescriptionNear(eye, 'cilindrico', formatDiopter(event.target.value))}
+                                      className="clinical-input h-8 text-center font-mono font-bold text-xs bg-white"
+                                    />
+                                  </td>
+                                  <td className="py-1 px-1">
+                                    <input
+                                      type="number"
+                                      min="0"
+                                      max="180"
+                                      step="1"
+                                      value={anamneseData.ultimoExame.perto?.[eye]?.eixo ?? ''}
+                                      onChange={(event) => updateLastPrescriptionNear(eye, 'eixo', event.target.value)}
+                                      onBlur={(event) => updateLastPrescriptionNear(eye, 'eixo', formatAxis(event.target.value))}
+                                      className="clinical-input h-8 text-center font-mono font-bold text-xs bg-white"
+                                    />
+                                  </td>
+                                  <td className="py-1 px-1">
+                                    <input
+                                      type="text"
+                                      value={anamneseData.ultimoExame.perto?.[eye]?.dnp ?? ''}
+                                      onChange={(event) => updateLastPrescriptionNear(eye, 'dnp', event.target.value)}
+                                      className="clinical-input h-8 text-center font-mono font-bold text-xs bg-white"
+                                    />
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    </>
+                  )}
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <label className="block">
                       <span className="block font-bold text-slate-700 mb-1">Filtro</span>
@@ -2567,37 +3008,13 @@ export default function AnamneseFichaClinica({ patient, consultation, disabled =
                     </button>
                   </div>
                 </div>
-              )}
-            </div>
-          )}
-
-          {/* 3. ACUIDADE VISUAL */}
-          {isSectionEnabled('acuidadeVisual') && (
-            <div data-clinical-section="acuidadeVisual" className="border border-slate-200/90 rounded-2xl bg-white shadow-hairline overflow-hidden transition-all">
-              <button
-                onClick={() => toggleSection('acuidadeVisual')}
-                className="w-full p-3.5 flex items-center justify-between bg-slate-50 hover:bg-forest-50/50 text-left transition-colors font-extrabold text-xs uppercase text-slate-900"
-              >
-                <div className="flex items-center space-x-2">
-                  {openSections['acuidadeVisual'] ? <ChevronDown className="w-4 h-4 text-forest-700" /> : <ChevronRight className="w-4 h-4 text-slate-400" />}
-                  <span>3. Acuidade Visual</span>
-                </div>
-                {openSections['acuidadeVisual'] ? (
-                  <span className="text-[10px] font-bold text-forest-800 bg-forest-50 px-2 py-0.5 rounded-md border border-forest-200/80 uppercase">
-                    Aberto
-                  </span>
-                ) : (
-                  <span className="text-[10px] font-bold text-slate-500 uppercase">
-                    Abrir
-                  </span>
-                )}
-              </button>
-
-              {openSections['acuidadeVisual'] && (
+        );
+      case 'acuidadeVisual':
+        return (
                 <div className="p-4 space-y-4 text-xs border-t border-slate-200 animate-fade-in">
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 max-w-2xl">
+                  <div className="max-w-xs">
                     <label className="block">
-                      <span className="block font-bold text-slate-700 mb-1">Tipo de Optotipo</span>
+                      <span className="block font-bold text-slate-700 text-xs mb-1">Tipo de Optotipo</span>
                       <select
                         value={anamneseData.acuidade.optotipo}
                         onChange={(event) => setAnamneseData((current) => ({ ...current, acuidade: { ...current.acuidade, optotipo: event.target.value } }))}
@@ -2609,15 +3026,6 @@ export default function AnamneseFichaClinica({ patient, consultation, disabled =
                         <option value="Figuras">Figuras</option>
                         <option value="LogMAR">LogMAR</option>
                       </select>
-                    </label>
-                    <label className="block">
-                      <span className="block font-bold text-slate-700 mb-1">Visão habitual</span>
-                      <input
-                        type="text"
-                        value={anamneseData.acuidade.visaoHabitual}
-                        onChange={(event) => setAnamneseData((current) => ({ ...current, acuidade: { ...current.acuidade, visaoHabitual: event.target.value } }))}
-                        className="clinical-input h-8 text-xs font-medium"
-                      />
                     </label>
                   </div>
 
@@ -2678,33 +3086,9 @@ export default function AnamneseFichaClinica({ patient, consultation, disabled =
                     </button>
                   </div>
                 </div>
-              )}
-            </div>
-          )}
-
-          {/* 4. BIOMICROSCOPIA */}
-          {isSectionEnabled('biomicroscopia') && (
-            <div data-clinical-section="biomicroscopia" className="border border-slate-200/90 rounded-2xl bg-white shadow-hairline overflow-hidden transition-all">
-              <button
-                onClick={() => toggleSection('biomicroscopia')}
-                className="w-full p-3.5 flex items-center justify-between bg-slate-50 hover:bg-forest-50/50 text-left transition-colors font-extrabold text-xs uppercase text-slate-900"
-              >
-                <div className="flex items-center space-x-2">
-                  {openSections['biomicroscopia'] ? <ChevronDown className="w-4 h-4 text-forest-700" /> : <ChevronRight className="w-4 h-4 text-slate-400" />}
-                  <span>4. Biomicroscopia</span>
-                </div>
-                {openSections['biomicroscopia'] ? (
-                  <span className="text-[10px] font-bold text-forest-800 bg-forest-50 px-2 py-0.5 rounded-md border border-forest-200/80 uppercase">
-                    Aberto
-                  </span>
-                ) : (
-                  <span className="text-[10px] font-bold text-slate-500 uppercase">
-                    Abrir
-                  </span>
-                )}
-              </button>
-
-              {openSections['biomicroscopia'] && (
+        );
+      case 'biomicroscopia':
+        return (
                 <div className="p-4 space-y-4 text-xs border-t border-slate-200 animate-fade-in">
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     {['od', 'oe'].map(eye => (
@@ -2756,33 +3140,9 @@ export default function AnamneseFichaClinica({ patient, consultation, disabled =
                     </button>
                   </div>
                 </div>
-              )}
-            </div>
-          )}
-
-          {/* 5. CERATOMETRIA */}
-          {isSectionEnabled('ceratometria') && (
-            <div data-clinical-section="ceratometria" className="border border-slate-200/90 rounded-2xl bg-white shadow-hairline overflow-hidden transition-all">
-              <button
-                onClick={() => toggleSection('ceratometria')}
-                className="w-full p-3.5 flex items-center justify-between bg-slate-50 hover:bg-forest-50/50 text-left transition-colors font-extrabold text-xs uppercase text-slate-900"
-              >
-                <div className="flex items-center space-x-2">
-                  {openSections['ceratometria'] ? <ChevronDown className="w-4 h-4 text-forest-700" /> : <ChevronRight className="w-4 h-4 text-slate-400" />}
-                  <span>5. Ceratometria</span>
-                </div>
-                {openSections['ceratometria'] ? (
-                  <span className="text-[10px] font-bold text-forest-800 bg-forest-50 px-2 py-0.5 rounded-md border border-forest-200/80 uppercase">
-                    Aberto
-                  </span>
-                ) : (
-                  <span className="text-[10px] font-bold text-slate-500 uppercase">
-                    Abrir
-                  </span>
-                )}
-              </button>
-
-              {openSections['ceratometria'] && (
+        );
+      case 'ceratometria':
+        return (
                 <div className="p-5 space-y-4 text-xs border-t border-slate-200 animate-fade-in bg-white">
                   <div className="flex flex-col sm:flex-row sm:items-center gap-3">
                     <label className="font-semibold text-slate-700 sm:w-28 shrink-0 text-xs">
@@ -2882,33 +3242,9 @@ export default function AnamneseFichaClinica({ patient, consultation, disabled =
                     </button>
                   </div>
                 </div>
-              )}
-            </div>
-          )}
-
-          {/* 6. TONOMETRIA */}
-          {isSectionEnabled('tonometria') && (
-            <div data-clinical-section="tonometria" className="border border-slate-200/90 rounded-2xl bg-white shadow-hairline overflow-hidden transition-all">
-              <button
-                onClick={() => toggleSection('tonometria')}
-                className="w-full p-3.5 flex items-center justify-between bg-slate-50 hover:bg-forest-50/50 text-left transition-colors font-extrabold text-xs uppercase text-slate-900"
-              >
-                <div className="flex items-center space-x-2">
-                  {openSections['tonometria'] ? <ChevronDown className="w-4 h-4 text-forest-700" /> : <ChevronRight className="w-4 h-4 text-slate-400" />}
-                  <span>6. Tonometria</span>
-                </div>
-                {openSections['tonometria'] ? (
-                  <span className="text-[10px] font-bold text-forest-800 bg-forest-50 px-2 py-0.5 rounded-md border border-forest-200/80 uppercase">
-                    Aberto
-                  </span>
-                ) : (
-                  <span className="text-[10px] font-bold text-slate-500 uppercase">
-                    Abrir
-                  </span>
-                )}
-              </button>
-
-              {openSections['tonometria'] && (
+        );
+      case 'tonometria':
+        return (
                 <div className="p-5 space-y-4 text-xs border-t border-slate-200 animate-fade-in bg-white">
                   <div className="flex flex-col sm:flex-row sm:items-center gap-3">
                     <label className="font-semibold text-slate-700 sm:w-28 shrink-0 text-xs">
@@ -3020,33 +3356,9 @@ export default function AnamneseFichaClinica({ patient, consultation, disabled =
                     </button>
                   </div>
                 </div>
-              )}
-            </div>
-          )}
-
-          {/* 7. FOROMETRIA */}
-          {isSectionEnabled('forometria') && (
-            <div data-clinical-section="forometria" className="border border-slate-200/90 rounded-2xl bg-white shadow-hairline overflow-hidden transition-all">
-              <button
-                onClick={() => toggleSection('forometria')}
-                className="w-full p-3.5 flex items-center justify-between bg-slate-50 hover:bg-forest-50/50 text-left transition-colors font-extrabold text-xs uppercase text-slate-900"
-              >
-                <div className="flex items-center space-x-2">
-                  {openSections['forometria'] ? <ChevronDown className="w-4 h-4 text-forest-700" /> : <ChevronRight className="w-4 h-4 text-slate-400" />}
-                  <span>7. Forometria</span>
-                </div>
-                {openSections['forometria'] ? (
-                  <span className="text-[10px] font-bold text-forest-800 bg-forest-50 px-2 py-0.5 rounded-md border border-forest-200/80 uppercase">
-                    Aberto
-                  </span>
-                ) : (
-                  <span className="text-[10px] font-bold text-slate-500 uppercase">
-                    Abrir
-                  </span>
-                )}
-              </button>
-
-              {openSections['forometria'] && (
+        );
+      case 'forometria':
+        return (
                 <div className="p-5 space-y-4 text-xs border-t border-slate-200 animate-fade-in bg-white">
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                     {FOROMETRY_FIELDS.map(([field, label]) => (
@@ -3073,33 +3385,9 @@ export default function AnamneseFichaClinica({ patient, consultation, disabled =
                     </button>
                   </div>
                 </div>
-              )}
-            </div>
-          )}
-
-          {/* 8. OFTALMOSCOPIA */}
-          {isSectionEnabled('oftalmoscopia') && (
-            <div data-clinical-section="oftalmoscopia" className="border border-slate-200/90 rounded-2xl bg-white shadow-hairline overflow-hidden transition-all">
-              <button
-                onClick={() => toggleSection('oftalmoscopia')}
-                className="w-full p-3.5 flex items-center justify-between bg-slate-50 hover:bg-forest-50/50 text-left transition-colors font-extrabold text-xs uppercase text-slate-900"
-              >
-                <div className="flex items-center space-x-2">
-                  {openSections['oftalmoscopia'] ? <ChevronDown className="w-4 h-4 text-forest-700" /> : <ChevronRight className="w-4 h-4 text-slate-400" />}
-                  <span>8. Oftalmoscopia</span>
-                </div>
-                {openSections['oftalmoscopia'] ? (
-                  <span className="text-[10px] font-bold text-forest-800 bg-forest-50 px-2 py-0.5 rounded-md border border-forest-200/80 uppercase">
-                    Aberto
-                  </span>
-                ) : (
-                  <span className="text-[10px] font-bold text-slate-500 uppercase">
-                    Abrir
-                  </span>
-                )}
-              </button>
-
-              {openSections['oftalmoscopia'] && (
+        );
+      case 'oftalmoscopia':
+        return (
                 <div className="p-5 space-y-4 text-xs border-t border-slate-200 animate-fade-in bg-white">
                   <label className="flex flex-col sm:flex-row sm:items-center gap-3">
                     <span className="font-semibold text-slate-700 sm:w-28 shrink-0">Técnica</span>
@@ -3129,6 +3417,43 @@ export default function AnamneseFichaClinica({ patient, consultation, disabled =
                             ))}
                           </tr>
                         ))}
+                        <tr className="hover:bg-slate-50/60 bg-slate-50/30">
+                          <td className="py-2.5 px-3 font-bold text-slate-800 align-middle">
+                            Tela de Amsler
+                          </td>
+                          {['od', 'oe'].map((eye) => (
+                            <td key={eye} className="py-2 px-3 w-1/2 text-center">
+                              <div className="inline-flex rounded-lg border border-slate-200 bg-white p-0.5 shadow-sm">
+                                {['Normal', 'Alterado'].map((opt) => {
+                                  const isSelected = (anamneseData.oftalmoscopia[eye].amsler || '').toLowerCase() === opt.toLowerCase();
+                                  const isAlterado = opt === 'Alterado';
+                                  return (
+                                    <button
+                                      key={opt}
+                                      type="button"
+                                      onClick={() => updateClinicalEyeField(
+                                        'oftalmoscopia',
+                                        eye,
+                                        'amsler',
+                                        isSelected ? '' : opt
+                                      )}
+                                      disabled={disabled || loadingOphthalmoscopy || savingOphthalmoscopy}
+                                      className={`px-3 py-1 text-xs font-semibold rounded-md transition-colors ${
+                                        isSelected
+                                          ? isAlterado
+                                            ? 'bg-amber-600 text-white shadow-xs'
+                                            : 'bg-forest-600 text-white shadow-xs'
+                                          : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
+                                      }`}
+                                    >
+                                      {opt}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            </td>
+                          ))}
+                        </tr>
                       </tbody>
                     </table>
                   </div>
@@ -3143,120 +3468,160 @@ export default function AnamneseFichaClinica({ patient, consultation, disabled =
                     </button>
                   </div>
                 </div>
-              )}
-            </div>
-          )}
-
-          {/* 9. RETINOSCOPIA DINÂMICA (Fiel à Imagem 1) */}
-          {isSectionEnabled('retinoscopiaDinamica') && (
-            <div data-clinical-section="retinoscopiaDinamica" className="border border-slate-200/90 rounded-2xl bg-white shadow-hairline overflow-hidden transition-all">
-              <button
-                onClick={() => toggleSection('retinoscopiaDinamica')}
-                className="w-full p-3.5 flex items-center justify-between bg-slate-50 hover:bg-forest-50/50 text-left transition-colors font-extrabold text-xs uppercase text-slate-900"
-              >
-                <div className="flex items-center space-x-2">
-                  {openSections['retinoscopiaDinamica'] ? <ChevronDown className="w-4 h-4 text-forest-700" /> : <ChevronRight className="w-4 h-4 text-slate-400" />}
-                  <span>9. Retinoscopia Dinâmica</span>
-                </div>
-                {openSections['retinoscopiaDinamica'] ? (
-                  <span className="text-[10px] font-bold text-forest-800 bg-forest-50 px-2 py-0.5 rounded-md border border-forest-200/80 uppercase">
-                    Aberto
-                  </span>
-                ) : (
-                  <span className="text-[10px] font-bold text-slate-500 uppercase">
-                    Abrir
-                  </span>
-                )}
-              </button>
-
-              {openSections['retinoscopiaDinamica'] && (
+        );
+      case 'retinoscopiaDinamica':
+        return (
                 <div className="p-5 space-y-3 text-xs border-t border-slate-200 animate-fade-in bg-white">
-                  <div className="overflow-x-auto border border-slate-200/80 rounded-2xl shadow-hairline my-2"><table className="w-full min-w-[680px] text-left border-collapse">
-                      <thead><tr className="border-b border-slate-200/80"><th className="py-2 px-3">Olho</th>{REFRACTION_FIELDS.map(([field, label]) => <th key={field} className="py-2 px-3 text-center uppercase text-[10px]">{label}</th>)}</tr></thead>
-                      <tbody className="divide-y divide-slate-100">
-                        {['od', 'oe'].map((eye) => <tr key={eye}><td className="py-2 px-3 font-bold uppercase">{eye}</td>{REFRACTION_FIELDS.map(([field, , type]) => <td key={field} className="py-1.5 px-2"><input type={type} min={type === 'number' ? 0 : undefined} max={type === 'number' ? 180 : undefined} step={type === 'number' ? 1 : undefined} value={anamneseData.retinoscopiaDinamica[eye][field]} onChange={(event) => updateClinicalEyeField('retinoscopiaDinamica', eye, field, event.target.value)} disabled={disabled || loadingDynamicRetinoscopy || savingDynamicRetinoscopy} className="clinical-input text-center font-mono font-bold h-9" /></td>)}</tr>)}
+                  <div className="overflow-x-auto border border-slate-200/80 rounded-2xl shadow-hairline my-2">
+                    <table className="w-full text-center border-collapse text-xs">
+                      <thead>
+                        <tr className="bg-slate-100 border-b border-slate-200/80 font-extrabold text-[11px] text-slate-700 uppercase">
+                          <th className="py-2 px-3 text-left">Olho</th>
+                          {REFRACTION_FIELDS.map(([field, label]) => (
+                            <th key={field} className="py-2 px-3">{label}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-200 font-mono">
+                        {['od', 'oe'].map((eye) => (
+                          <tr key={eye}>
+                            <td className="py-2 px-3 text-left font-bold font-sans uppercase">
+                              {eye === 'od' ? 'Olho Direito (OD)' : 'Olho Esquerdo (OE)'}
+                            </td>
+                            {REFRACTION_FIELDS.map(([field, , type, step]) => (
+                              <td key={field} className="py-1 px-1">
+                                <input
+                                  type={type}
+                                  min={field === 'eixo' ? 0 : undefined}
+                                  max={field === 'eixo' ? 180 : undefined}
+                                  step={step}
+                                  value={anamneseData.retinoscopiaDinamica[eye][field]}
+                                  onChange={(event) => updateClinicalEyeField('retinoscopiaDinamica', eye, field, event.target.value)}
+                                  onBlur={(event) => {
+                                    if (field === 'esferico' || field === 'cilindrico') {
+                                      updateClinicalEyeField('retinoscopiaDinamica', eye, field, formatDiopter(event.target.value));
+                                    } else if (field === 'eixo') {
+                                      updateClinicalEyeField('retinoscopiaDinamica', eye, field, formatAxis(event.target.value));
+                                    }
+                                  }}
+                                  disabled={disabled || loadingDynamicRetinoscopy || savingDynamicRetinoscopy}
+                                  className="clinical-input h-8 text-center font-mono font-bold text-xs"
+                                />
+                              </td>
+                            ))}
+                          </tr>
+                        ))}
                       </tbody>
                     </table>
                   </div>
                   <textarea rows={3} aria-label="Observações da Retinoscopia Dinâmica" value={anamneseData.retinoscopiaDinamica.observacoes} onChange={(event) => updateClinicalSectionField('retinoscopiaDinamica', 'observacoes', event.target.value)} disabled={disabled || loadingDynamicRetinoscopy || savingDynamicRetinoscopy} className="clinical-input h-auto min-h-20 py-2 text-xs font-medium resize-y" placeholder="Observações" />
                   <div className="flex justify-end"><button type="button" onClick={saveDynamicRetinoscopy} disabled={disabled || loadingDynamicRetinoscopy || savingDynamicRetinoscopy} className={saveButtonClass('retinoscopiaDinamica')}>{savingDynamicRetinoscopy ? <Clock className="w-3.5 h-3.5 animate-spin" /> : savedSection === 'retinoscopiaDinamica' ? <Check className="w-3.5 h-3.5" /> : <Save className="w-3.5 h-3.5" />}<span>{savingDynamicRetinoscopy ? 'Salvando...' : savedSection === 'retinoscopiaDinamica' ? 'Salvo com sucesso' : 'Salvar Retinoscopia Dinâmica'}</span></button></div>
                 </div>
-              )}
-            </div>
-          )}
-
-          {/* 10. RETINOSCOPIA ESTÁTICA (Fiel à Imagem 1) */}
-          {isSectionEnabled('retinoscopiaEstatica') && (
-            <div data-clinical-section="retinoscopiaEstatica" className="border border-slate-200/90 rounded-2xl bg-white shadow-hairline overflow-hidden transition-all">
-              <button
-                onClick={() => toggleSection('retinoscopiaEstatica')}
-                className="w-full p-3.5 flex items-center justify-between bg-slate-50 hover:bg-forest-50/50 text-left transition-colors font-extrabold text-xs uppercase text-slate-900"
-              >
-                <div className="flex items-center space-x-2">
-                  {openSections['retinoscopiaEstatica'] ? <ChevronDown className="w-4 h-4 text-forest-700" /> : <ChevronRight className="w-4 h-4 text-slate-400" />}
-                  <span>10. Retinoscopia Estática</span>
-                </div>
-                {openSections['retinoscopiaEstatica'] ? (
-                  <span className="text-[10px] font-bold text-forest-800 bg-forest-50 px-2 py-0.5 rounded-md border border-forest-200/80 uppercase">
-                    Aberto
-                  </span>
-                ) : (
-                  <span className="text-[10px] font-bold text-slate-500 uppercase">
-                    Abrir
-                  </span>
-                )}
-              </button>
-
-              {openSections['retinoscopiaEstatica'] && (
+        );
+      case 'retinoscopiaEstatica':
+        return (
                 <div className="p-5 space-y-3 text-xs border-t border-slate-200 animate-fade-in bg-white">
-                  <div className="overflow-x-auto border border-slate-200/80 rounded-2xl shadow-hairline my-2"><table className="w-full min-w-[680px] text-left border-collapse">
-                      <thead><tr className="border-b border-slate-200/80"><th className="py-2 px-3">Olho</th>{REFRACTION_FIELDS.map(([field, label]) => <th key={field} className="py-2 px-3 text-center uppercase text-[10px]">{label}</th>)}</tr></thead>
-                      <tbody className="divide-y divide-slate-100">
-                        {['od', 'oe'].map((eye) => <tr key={eye}><td className="py-2 px-3 font-bold uppercase">{eye}</td>{REFRACTION_FIELDS.map(([field, , type]) => <td key={field} className="py-1.5 px-2"><input type={type} min={type === 'number' ? 0 : undefined} max={type === 'number' ? 180 : undefined} step={type === 'number' ? 1 : undefined} value={anamneseData.retinoscopiaEstatica[eye][field]} onChange={(event) => updateClinicalEyeField('retinoscopiaEstatica', eye, field, event.target.value)} disabled={disabled || loadingStaticRetinoscopy || savingStaticRetinoscopy} className="clinical-input text-center font-mono font-bold h-9" /></td>)}</tr>)}
+                  <div className="overflow-x-auto border border-slate-200/80 rounded-2xl shadow-hairline my-2">
+                    <table className="w-full text-center border-collapse text-xs">
+                      <thead>
+                        <tr className="bg-slate-100 border-b border-slate-200/80 font-extrabold text-[11px] text-slate-700 uppercase">
+                          <th className="py-2 px-3 text-left">Olho</th>
+                          {REFRACTION_FIELDS.map(([field, label]) => (
+                            <th key={field} className="py-2 px-3">{label}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-200 font-mono">
+                        {['od', 'oe'].map((eye) => (
+                          <tr key={eye}>
+                            <td className="py-2 px-3 text-left font-bold font-sans uppercase">
+                              {eye === 'od' ? 'Olho Direito (OD)' : 'Olho Esquerdo (OE)'}
+                            </td>
+                            {REFRACTION_FIELDS.map(([field, , type, step]) => (
+                              <td key={field} className="py-1 px-1">
+                                <input
+                                  type={type}
+                                  min={field === 'eixo' ? 0 : undefined}
+                                  max={field === 'eixo' ? 180 : undefined}
+                                  step={step}
+                                  value={anamneseData.retinoscopiaEstatica[eye][field]}
+                                  onChange={(event) => updateClinicalEyeField('retinoscopiaEstatica', eye, field, event.target.value)}
+                                  onBlur={(event) => {
+                                    if (field === 'esferico' || field === 'cilindrico') {
+                                      updateClinicalEyeField('retinoscopiaEstatica', eye, field, formatDiopter(event.target.value));
+                                    } else if (field === 'eixo') {
+                                      updateClinicalEyeField('retinoscopiaEstatica', eye, field, formatAxis(event.target.value));
+                                    }
+                                  }}
+                                  disabled={disabled || loadingStaticRetinoscopy || savingStaticRetinoscopy}
+                                  className="clinical-input h-8 text-center font-mono font-bold text-xs"
+                                />
+                              </td>
+                            ))}
+                          </tr>
+                        ))}
                       </tbody>
                     </table>
                   </div>
                   <textarea rows={3} aria-label="Observações da Retinoscopia Estática" value={anamneseData.retinoscopiaEstatica.observacoes} onChange={(event) => updateClinicalSectionField('retinoscopiaEstatica', 'observacoes', event.target.value)} disabled={disabled || loadingStaticRetinoscopy || savingStaticRetinoscopy} className="clinical-input h-auto min-h-20 py-2 text-xs font-medium resize-y" placeholder="Observações" />
                   <div className="flex justify-end"><button type="button" onClick={saveStaticRetinoscopy} disabled={disabled || loadingStaticRetinoscopy || savingStaticRetinoscopy} className={saveButtonClass('retinoscopiaEstatica')}>{savingStaticRetinoscopy ? <Clock className="w-3.5 h-3.5 animate-spin" /> : savedSection === 'retinoscopiaEstatica' ? <Check className="w-3.5 h-3.5" /> : <Save className="w-3.5 h-3.5" />}<span>{savingStaticRetinoscopy ? 'Salvando...' : savedSection === 'retinoscopiaEstatica' ? 'Salvo com sucesso' : 'Salvar Retinoscopia Estática'}</span></button></div>
                 </div>
-              )}
-            </div>
-          )}
-
-          {/* 11. AVALIAÇÃO MOTORA (Fiel à Imagem 2) */}
-          {isSectionEnabled('avaliacaoMotora') && (
-            <div data-clinical-section="avaliacaoMotora" className="border border-slate-200/90 rounded-2xl bg-white shadow-hairline overflow-hidden transition-all">
-              <button
-                onClick={() => toggleSection('avaliacaoMotora')}
-                className="w-full p-3.5 flex items-center justify-between bg-slate-50 hover:bg-forest-50/50 text-left transition-colors font-extrabold text-xs uppercase text-slate-900"
-              >
-                <div className="flex items-center space-x-2">
-                  {openSections['avaliacaoMotora'] ? <ChevronDown className="w-4 h-4 text-forest-700" /> : <ChevronRight className="w-4 h-4 text-slate-400" />}
-                  <span>11. Avaliação Motora</span>
-                </div>
-                {openSections['avaliacaoMotora'] ? (
-                  <span className="text-[10px] font-bold text-forest-800 bg-forest-50 px-2 py-0.5 rounded-md border border-forest-200/80 uppercase">
-                    Aberto
-                  </span>
-                ) : (
-                  <span className="text-[10px] font-bold text-slate-500 uppercase">
-                    Abrir
-                  </span>
-                )}
-              </button>
-
-              {openSections['avaliacaoMotora'] && (
+        );
+      case 'avaliacaoMotora':
+        return (
                 <div className="p-5 space-y-4 text-xs border-t border-slate-200 animate-fade-in bg-white">
-                  <div className="overflow-x-auto border border-slate-200/80 rounded-2xl shadow-hairline my-2"><table className="w-full text-left border-collapse text-xs">
-                      <thead><tr className="border-b border-slate-200/80"><th className="py-2.5 px-3 w-40"></th><th className="py-2.5 px-3 text-center uppercase">OD</th><th className="py-2.5 px-3 text-center uppercase">OE</th></tr></thead>
-                      <tbody className="divide-y divide-slate-100">
-                        {[['kappa', 'Kappa'], ['hirschberg', 'Hirschberg'], ['duccoes', 'Ducções']].map(([field, label]) => <tr key={field}><td className="py-2.5 px-3 font-semibold">{label}</td>{['od', 'oe'].map((eye) => <td key={eye} className="py-1.5 px-3"><input type="text" value={anamneseData.avaliacaoMotora[field][eye]} onChange={(event) => updateMotorField(field, eye, event.target.value)} disabled={disabled || loadingMotorEvaluation || savingMotorEvaluation} className="clinical-input h-9 font-medium" /></td>)}</tr>)}
-                        <tr className="hover:bg-slate-50/60">
-                          <td className="py-2.5 px-3 font-semibold text-slate-700 align-middle">Versões</td>
-                          <td className="py-3 px-3 w-1/2 text-center">
+                  <div className="overflow-x-auto border border-slate-200/80 rounded-2xl shadow-hairline my-2">
+                    <table className="w-full text-left border-collapse text-xs">
+                      <thead>
+                        <tr className="bg-slate-100 border-b border-slate-200/80 font-extrabold text-[11px] text-slate-700 uppercase">
+                          <th className="py-2 px-3 text-left w-48">Teste / Avaliação</th>
+                          <th className="py-2 px-3 text-center">Olho Direito (OD)</th>
+                          <th className="py-2 px-3 text-center">Olho Esquerdo (OE)</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-200">
+                        {[['kappa', 'Kappa'], ['duccoes', 'Ducções']].map(([field, label]) => (
+                          <tr key={field}>
+                            <td className="py-2 px-3 font-bold font-sans uppercase text-slate-800 text-xs">
+                              {label}
+                            </td>
+                            {['od', 'oe'].map((eye) => (
+                              <td key={eye} className="py-1 px-2">
+                                <input
+                                  type="text"
+                                  value={anamneseData.avaliacaoMotora[field][eye]}
+                                  onChange={(event) => updateMotorField(field, eye, event.target.value)}
+                                  disabled={disabled || loadingMotorEvaluation || savingMotorEvaluation}
+                                  className="clinical-input h-8 text-center font-medium text-xs"
+                                />
+                              </td>
+                            ))}
+                          </tr>
+                        ))}
+                        <tr>
+                          <td className="py-2 px-3 font-bold font-sans uppercase text-slate-800 text-xs">
+                            Hirschberg
+                          </td>
+                          <td colSpan={2} className="py-1 px-2">
+                            <input
+                              type="text"
+                              value={typeof anamneseData.avaliacaoMotora.hirschberg === 'object' && anamneseData.avaliacaoMotora.hirschberg !== null
+                                ? (anamneseData.avaliacaoMotora.hirschberg.od || anamneseData.avaliacaoMotora.hirschberg.oe || '')
+                                : (anamneseData.avaliacaoMotora.hirschberg ?? '')}
+                              onChange={(event) => updateMotorField('hirschberg', null, event.target.value)}
+                              disabled={disabled || loadingMotorEvaluation || savingMotorEvaluation}
+                              className="clinical-input h-8 text-center font-medium text-xs"
+                            />
+                          </td>
+                        </tr>
+                        <tr>
+                          <td className="py-2.5 px-3 font-bold font-sans uppercase text-slate-800 text-xs align-middle">
+                            Versões
+                          </td>
+                          <td className="py-2 px-2 text-center bg-slate-50/30">
                             <VersoesHDiagram eye="OD" values={anamneseData.avaliacaoMotora.versoes.od} onChange={(pos, val) => updateMotorVersion('od', pos, val)} disabled={disabled || loadingMotorEvaluation || savingMotorEvaluation} />
                           </td>
-                          <td className="py-3 px-3 w-1/2 text-center">
+                          <td className="py-2 px-2 text-center bg-slate-50/30">
                             <VersoesHDiagram eye="OE" values={anamneseData.avaliacaoMotora.versoes.oe} onChange={(pos, val) => updateMotorVersion('oe', pos, val)} disabled={disabled || loadingMotorEvaluation || savingMotorEvaluation} />
                           </td>
                         </tr>
@@ -3266,72 +3631,45 @@ export default function AnamneseFichaClinica({ patient, consultation, disabled =
                   <textarea rows={3} aria-label="Observações da Avaliação Motora" value={anamneseData.avaliacaoMotora.observacoes} onChange={(event) => updateClinicalSectionField('avaliacaoMotora', 'observacoes', event.target.value)} disabled={disabled || loadingMotorEvaluation || savingMotorEvaluation} className="clinical-input h-auto min-h-20 py-2 text-xs font-medium resize-y" placeholder="Observações" />
                   <div className="flex justify-end"><button type="button" onClick={saveMotorEvaluation} disabled={disabled || loadingMotorEvaluation || savingMotorEvaluation} className={saveButtonClass('avaliacaoMotora')}>{savingMotorEvaluation ? <Clock className="w-3.5 h-3.5 animate-spin" /> : savedSection === 'avaliacaoMotora' ? <Check className="w-3.5 h-3.5" /> : <Save className="w-3.5 h-3.5" />}<span>{savingMotorEvaluation ? 'Salvando...' : savedSection === 'avaliacaoMotora' ? 'Salvo com sucesso' : 'Salvar Avaliação Motora'}</span></button></div>
                 </div>
-              )}
-            </div>
-          )}
-
-          {/* 12. RX FINAL */}
-          {isSectionEnabled('rxFinal') && (
-            <div data-clinical-section="rxFinal" className="border border-slate-200/90 rounded-2xl bg-white shadow-hairline overflow-hidden transition-all">
-              <button
-                onClick={() => toggleSection('rxFinal')}
-                className="w-full p-3.5 flex items-center justify-between bg-slate-50 hover:bg-forest-50/50 text-left transition-colors font-extrabold text-xs uppercase text-slate-900"
-              >
-                <div className="flex items-center space-x-2">
-                  {openSections['rxFinal'] ? <ChevronDown className="w-4 h-4 text-forest-700" /> : <ChevronRight className="w-4 h-4 text-slate-400" />}
-                  <span>12. RX Final</span>
-                </div>
-                {openSections['rxFinal'] ? (
-                  <span className="text-[10px] font-bold text-forest-800 bg-forest-50 px-2 py-0.5 rounded-md border border-forest-200/80 uppercase">
-                    Aberto
-                  </span>
-                ) : (
-                  <span className="text-[10px] font-bold text-slate-500 uppercase">
-                    Abrir
-                  </span>
-                )}
-              </button>
-
-              {openSections['rxFinal'] && (
+        );
+      case 'rxFinal':
+        return (
                 <div className="p-4 space-y-3 text-xs border-t border-slate-200 animate-fade-in">
                   <div className="overflow-x-auto border border-slate-200/80 rounded-2xl shadow-hairline my-2"><table className="w-full min-w-[900px] text-center border-collapse text-xs">
                       <thead><tr className="bg-slate-100 border-b border-slate-200/80 font-extrabold text-[11px] text-slate-700 uppercase"><th className="py-2 px-3 text-left">Olho</th>{RX_FINAL_EYE_FIELDS.map(([field, label]) => <th key={field} className="py-2 px-3">{label}</th>)}</tr></thead>
                       <tbody className="divide-y divide-slate-200 font-mono">
-                        {['od', 'oe'].map((eye) => <tr key={eye}><td className="py-2 px-3 text-left font-bold font-sans uppercase">{eye}</td>{RX_FINAL_EYE_FIELDS.map(([field, , type]) => <td key={field} className="py-1 px-1"><input type={type} min={field === 'eixo' ? 0 : undefined} max={field === 'eixo' ? 180 : undefined} value={anamneseData.rxFinal[eye][field]} onChange={(event) => updateClinicalEyeField('rxFinal', eye, field, event.target.value)} disabled={disabled || loadingFinalRx || savingFinalRx} className="clinical-input h-8 text-center font-mono font-bold text-xs" /></td>)}</tr>)}
+                        {['od', 'oe'].map((eye) => <tr key={eye}><td className="py-2 px-3 text-left font-bold font-sans uppercase">{eye}</td>{RX_FINAL_EYE_FIELDS.map(([field, , type, step]) => <td key={field} className="py-1 px-1"><input type={type} min={field === 'eixo' ? 0 : undefined} max={field === 'eixo' ? 180 : undefined} step={step} value={anamneseData.rxFinal[eye][field]} onChange={(event) => updateClinicalEyeField('rxFinal', eye, field, event.target.value)} onBlur={(event) => { if (field === 'esferico' || field === 'cilindrico') { updateClinicalEyeField('rxFinal', eye, field, formatDiopter(event.target.value)); } else if (field === 'eixo') { updateClinicalEyeField('rxFinal', eye, field, formatAxis(event.target.value)); } }} disabled={disabled || loadingFinalRx || savingFinalRx} className="clinical-input h-8 text-center font-mono font-bold text-xs" /></td>)}</tr>)}
                       </tbody>
                     </table>
                   </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">{[['adicao', 'Adição'], ['tipoLente', 'Tipo de lente'], ['filtro', 'Filtro'], ['cor', 'Cor'], ['tratamento', 'Tratamento']].map(([field, label]) => <label key={field}><span className="block text-[10px] font-bold uppercase text-slate-600 mb-1">{label}</span><input type="text" value={anamneseData.rxFinal[field]} onChange={(event) => updateClinicalSectionField('rxFinal', field, event.target.value)} disabled={disabled || loadingFinalRx || savingFinalRx} className="clinical-input h-9 font-medium" /></label>)}</div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+                    <label>
+                      <span className="block text-[10px] font-bold uppercase text-slate-600 mb-1">Adição</span>
+                      <input
+                        type="number"
+                        step="0.25"
+                        min="0.25"
+                        value={anamneseData.rxFinal.adicao}
+                        onFocus={() => {
+                          if (!anamneseData.rxFinal.adicao) {
+                            updateClinicalSectionField('rxFinal', 'adicao', '1.00');
+                          }
+                        }}
+                        onChange={(event) => updateClinicalSectionField('rxFinal', 'adicao', event.target.value)}
+                        onBlur={(event) => updateClinicalSectionField('rxFinal', 'adicao', formatDiopter(event.target.value))}
+                        disabled={disabled || loadingFinalRx || savingFinalRx}
+                        className="clinical-input h-9 font-medium text-center font-mono font-bold"
+                        placeholder="1.00"
+                      />
+                    </label>
+                    {[['tipoLente', 'Tipo de lente'], ['filtro', 'Filtro'], ['cor', 'Cor'], ['tratamento', 'Tratamento']].map(([field, label]) => <label key={field}><span className="block text-[10px] font-bold uppercase text-slate-600 mb-1">{label}</span><input type="text" value={anamneseData.rxFinal[field]} onChange={(event) => updateClinicalSectionField('rxFinal', field, event.target.value)} disabled={disabled || loadingFinalRx || savingFinalRx} className="clinical-input h-9 font-medium" /></label>)}
+                  </div>
                   <textarea rows={3} aria-label="Observações do RX Final" value={anamneseData.rxFinal.observacoes} onChange={(event) => updateClinicalSectionField('rxFinal', 'observacoes', event.target.value)} disabled={disabled || loadingFinalRx || savingFinalRx} className="clinical-input h-auto min-h-20 py-2 text-xs font-medium resize-y" placeholder="Observações" />
                   <div className="flex justify-end"><button type="button" onClick={saveFinalRx} disabled={disabled || loadingFinalRx || savingFinalRx} className={saveButtonClass('rxFinal')}>{savingFinalRx ? <Clock className="w-3.5 h-3.5 animate-spin" /> : savedSection === 'rxFinal' ? <Check className="w-3.5 h-3.5" /> : <Save className="w-3.5 h-3.5" />}<span>{savingFinalRx ? 'Salvando...' : savedSection === 'rxFinal' ? 'Salvo com sucesso' : 'Salvar RX Final'}</span></button></div>
                 </div>
-              )}
-            </div>
-          )}
-
-          {/* 13. AMPLITUDE DE ACOMODAÇÃO (Fiel à Imagem 3) */}
-          {isSectionEnabled('amplitudeAcomodacao') && (
-            <div data-clinical-section="amplitudeAcomodacao" className="border border-slate-200/90 rounded-2xl bg-white shadow-hairline overflow-hidden transition-all">
-              <button
-                onClick={() => toggleSection('amplitudeAcomodacao')}
-                className="w-full p-3.5 flex items-center justify-between bg-slate-50 hover:bg-forest-50/50 text-left transition-colors font-extrabold text-xs uppercase text-slate-900"
-              >
-                <div className="flex items-center space-x-2">
-                  {openSections['amplitudeAcomodacao'] ? <ChevronDown className="w-4 h-4 text-forest-700" /> : <ChevronRight className="w-4 h-4 text-slate-400" />}
-                  <span>13. Amplitude de Acomodação</span>
-                </div>
-                {openSections['amplitudeAcomodacao'] ? (
-                  <span className="text-[10px] font-bold text-forest-800 bg-forest-50 px-2 py-0.5 rounded-md border border-forest-200/80 uppercase">
-                    Aberto
-                  </span>
-                ) : (
-                  <span className="text-[10px] font-bold text-slate-500 uppercase">
-                    Abrir
-                  </span>
-                )}
-              </button>
-
-              {openSections['amplitudeAcomodacao'] && (
+        );
+      case 'amplitudeAcomodacao':
+        return (
                 <div className="p-5 space-y-4 text-xs border-t border-slate-200 animate-fade-in bg-white">
                   <label className="flex flex-col sm:flex-row sm:items-center gap-3">
                     <span className="font-semibold text-slate-700 sm:w-28 shrink-0">Técnica</span>
@@ -3349,78 +3687,175 @@ export default function AnamneseFichaClinica({ patient, consultation, disabled =
                   </div>
                   <div className="flex justify-end"><button type="button" onClick={saveAccommodationAmplitude} disabled={disabled || loadingAccommodationAmplitude || savingAccommodationAmplitude} className={saveButtonClass('amplitudeAcomodacao')}>{savingAccommodationAmplitude ? <Clock className="w-3.5 h-3.5 animate-spin" /> : savedSection === 'amplitudeAcomodacao' ? <Check className="w-3.5 h-3.5" /> : <Save className="w-3.5 h-3.5" />}<span>{savingAccommodationAmplitude ? 'Salvando...' : savedSection === 'amplitudeAcomodacao' ? 'Salvo com sucesso' : 'Salvar Amplitude'}</span></button></div>
                 </div>
-              )}
-            </div>
-          )}
-
-          {/* 14. AFINAMENTO */}
-          {isSectionEnabled('afinamento') && (
-            <div data-clinical-section="afinamento" className="border border-slate-200/90 rounded-2xl bg-white shadow-hairline overflow-hidden transition-all">
-              <button
-                onClick={() => toggleSection('afinamento')}
-                className="w-full p-3.5 flex items-center justify-between bg-slate-50 hover:bg-forest-50/50 text-left transition-colors font-extrabold text-xs uppercase text-slate-900"
-              >
-                <div className="flex items-center space-x-2">
-                  {openSections['afinamento'] ? <ChevronDown className="w-4 h-4 text-forest-700" /> : <ChevronRight className="w-4 h-4 text-slate-400" />}
-                  <span>14. Afinamento</span>
-                </div>
-                {openSections['afinamento'] ? (
-                  <span className="text-[10px] font-bold text-forest-800 bg-forest-50 px-2 py-0.5 rounded-md border border-forest-200/80 uppercase">
-                    Aberto
-                  </span>
-                ) : (
-                  <span className="text-[10px] font-bold text-slate-500 uppercase">
-                    Abrir
-                  </span>
-                )}
-              </button>
-
-              {openSections['afinamento'] && (
-                <div className="p-5 space-y-3 text-xs border-t border-slate-200 animate-fade-in bg-white">
-                  <div className="overflow-x-auto border border-slate-200/80 rounded-2xl shadow-hairline my-2"><table className="w-full min-w-[760px] text-left border-collapse"><thead><tr className="border-b border-slate-200/80"><th className="py-2 px-3">Olho</th>{REFRACTION_NEAR_FIELDS.map(([field, label]) => <th key={field} className="py-2 px-3 text-center uppercase text-[10px]">{label}</th>)}</tr></thead><tbody className="divide-y divide-slate-100">{['od', 'oe'].map((eye) => <tr key={eye}><td className="py-2 px-3 font-bold uppercase">{eye}</td>{REFRACTION_NEAR_FIELDS.map(([field, , type]) => <td key={field} className="py-1.5 px-2"><input type={type} min={field === 'eixo' ? 0 : undefined} max={field === 'eixo' ? 180 : undefined} value={anamneseData.afinamento[eye][field]} onChange={(event) => updateClinicalEyeField('afinamento', eye, field, event.target.value)} disabled={disabled || loadingRefinement || savingRefinement} className="clinical-input text-center font-mono font-bold" /></td>)}</tr>)}</tbody></table></div>
-                  <label className="block max-w-sm"><span className="block text-[10px] font-bold uppercase text-slate-600 mb-1">Adição</span><input type="text" value={anamneseData.afinamento.adicao} onChange={(event) => updateClinicalSectionField('afinamento', 'adicao', event.target.value)} disabled={disabled || loadingRefinement || savingRefinement} className="clinical-input h-9 font-medium" /></label>
-                  <textarea rows={3} aria-label="Observações do Afinamento" value={anamneseData.afinamento.observacoes} onChange={(event) => updateClinicalSectionField('afinamento', 'observacoes', event.target.value)} disabled={disabled || loadingRefinement || savingRefinement} className="clinical-input h-auto min-h-20 py-2 text-xs font-medium resize-y" placeholder="Observações" />
+        );
+      case 'afinamento':
+        return (
+                <div className="p-4 space-y-3 text-xs border-t border-slate-200 animate-fade-in">
+                  <div className="overflow-x-auto border border-slate-200/80 rounded-2xl shadow-hairline my-2">
+                    <table className="w-full min-w-[760px] text-center border-collapse text-xs">
+                      <thead>
+                        <tr className="bg-slate-100 border-b border-slate-200/80 font-extrabold text-[11px] text-slate-700 uppercase">
+                          <th className="py-2 px-3 text-left">Olho</th>
+                          {REFRACTION_NEAR_FIELDS.map(([field, label]) => (
+                            <th key={field} className="py-2 px-3">{label}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-200 font-mono">
+                        {['od', 'oe'].map((eye) => (
+                          <tr key={eye}>
+                            <td className="py-2 px-3 text-left font-bold font-sans uppercase">{eye}</td>
+                            {REFRACTION_NEAR_FIELDS.map(([field, , type, step]) => (
+                              <td key={field} className="py-1 px-1">
+                                <input
+                                  type={type}
+                                  min={field === 'eixo' ? 0 : undefined}
+                                  max={field === 'eixo' ? 180 : undefined}
+                                  step={step}
+                                  value={anamneseData.afinamento[eye][field]}
+                                  onChange={(event) => updateClinicalEyeField('afinamento', eye, field, event.target.value)}
+                                  onBlur={(event) => {
+                                    if (field === 'esferico' || field === 'cilindrico') {
+                                      updateClinicalEyeField('afinamento', eye, field, formatDiopter(event.target.value));
+                                    } else if (field === 'eixo') {
+                                      updateClinicalEyeField('afinamento', eye, field, formatAxis(event.target.value));
+                                    }
+                                  }}
+                                  disabled={disabled || loadingRefinement || savingRefinement}
+                                  className="clinical-input h-8 text-center font-mono font-bold text-xs"
+                                />
+                              </td>
+                            ))}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  <div className="max-w-xs">
+                    <label className="block">
+                      <span className="block text-[10px] font-bold uppercase text-slate-600 mb-1">Adição</span>
+                      <input
+                        type="number"
+                        step="0.25"
+                        min="0.25"
+                        value={anamneseData.afinamento.adicao}
+                        onFocus={() => {
+                          if (!anamneseData.afinamento.adicao) {
+                            updateClinicalSectionField('afinamento', 'adicao', '1.00');
+                          }
+                        }}
+                        onChange={(event) => updateClinicalSectionField('afinamento', 'adicao', event.target.value)}
+                        onBlur={(event) => updateClinicalSectionField('afinamento', 'adicao', formatDiopter(event.target.value))}
+                        disabled={disabled || loadingRefinement || savingRefinement}
+                        className="clinical-input h-8 font-medium text-center font-mono font-bold text-xs"
+                        placeholder="1.00"
+                      />
+                    </label>
+                  </div>
+                  <label className="block">
+                    <span className="block font-bold text-slate-700 mb-1">Observações</span>
+                    <textarea rows={3} aria-label="Observações do Afinamento" value={anamneseData.afinamento.observacoes} onChange={(event) => updateClinicalSectionField('afinamento', 'observacoes', event.target.value)} disabled={disabled || loadingRefinement || savingRefinement} className="clinical-input h-auto min-h-20 py-2 text-xs font-medium resize-y" placeholder="Observações" />
+                  </label>
                   <div className="flex justify-end"><button type="button" onClick={saveRefinement} disabled={disabled || loadingRefinement || savingRefinement} className={saveButtonClass('afinamento')}>{savingRefinement ? <Clock className="w-3.5 h-3.5 animate-spin" /> : savedSection === 'afinamento' ? <Check className="w-3.5 h-3.5" /> : <Save className="w-3.5 h-3.5" />}<span>{savingRefinement ? 'Salvando...' : savedSection === 'afinamento' ? 'Salvo com sucesso' : 'Salvar Afinamento'}</span></button></div>
                 </div>
-              )}
-            </div>
-          )}
-          {/* 15. DX (DIAGNÓSTICO E CONDUTA) */}
-          {isSectionEnabled('dx') && (
-            <div data-clinical-section="dx" className="border border-slate-200/90 rounded-2xl bg-white shadow-hairline overflow-hidden transition-all">
-              <button
-                onClick={() => toggleSection('dx')}
-                className="w-full p-3.5 flex items-center justify-between bg-slate-50 hover:bg-forest-50/50 text-left transition-colors font-extrabold text-xs uppercase text-slate-900"
-              >
-                <div className="flex items-center space-x-2">
-                  {openSections['dx'] ? <ChevronDown className="w-4 h-4 text-forest-700" /> : <ChevronRight className="w-4 h-4 text-slate-400" />}
-                  <span>15. DX (Diagnóstico e Conduta)</span>
-                </div>
-                {openSections['dx'] ? (
-                  <span className="text-[10px] font-bold text-forest-800 bg-forest-50 px-2 py-0.5 rounded-md border border-forest-200/80 uppercase">
-                    Aberto
-                  </span>
-                ) : (
-                  <span className="text-[10px] font-bold text-slate-500 uppercase">
-                    Abrir
-                  </span>
-                )}
-              </button>
-
-              {openSections['dx'] && (
+        );
+      case 'dx':
+        return (
                 <div className="p-5 sm:p-6 space-y-4 text-xs animate-fade-in bg-white">
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
-                    <div>
-                      <label className="clinical-label">Refrativo</label>
-                      <input type="text" value={anamneseData.dx.refrativo} onChange={(event) => updateClinicalSectionField('dx', 'refrativo', event.target.value)} className="clinical-input font-medium" />
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    {/* Diagnóstico Refrativo */}
+                    <div className="p-3.5 bg-slate-50/70 border border-slate-200/80 rounded-2xl space-y-2.5 shadow-hairline">
+                      <span className="clinical-label">Diagnóstico Refrativo</span>
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">OD</label>
+                          <input
+                            type="text"
+                            placeholder="OD"
+                            value={eyeValue(anamneseData.dx.refrativo, 'od')}
+                            onChange={(event) => updateDxField('refrativo', 'od', event.target.value)}
+                            disabled={disabled || loadingDx || savingDx}
+                            className="clinical-input font-medium text-xs h-8"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">OE</label>
+                          <input
+                            type="text"
+                            placeholder="OE"
+                            value={eyeValue(anamneseData.dx.refrativo, 'oe')}
+                            onChange={(event) => updateDxField('refrativo', 'oe', event.target.value)}
+                            disabled={disabled || loadingDx || savingDx}
+                            className="clinical-input font-medium text-xs h-8"
+                          />
+                        </div>
+                      </div>
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Obs. Refrativo</label>
+                        <input
+                          type="text"
+                          placeholder="Observações do Refrativo"
+                          value={anamneseData.dx.refrativo?.observacoes ?? ''}
+                          onChange={(event) => updateDxField('refrativo', 'observacoes', event.target.value)}
+                          disabled={disabled || loadingDx || savingDx}
+                          className="clinical-input font-medium text-xs h-8"
+                        />
+                      </div>
                     </div>
-                    <div>
-                      <label className="clinical-label">Motor</label>
-                      <input type="text" value={anamneseData.dx.motor} onChange={(event) => updateClinicalSectionField('dx', 'motor', event.target.value)} className="clinical-input font-medium" />
+
+                    {/* Diagnóstico Motor */}
+                    <div className="p-3.5 bg-slate-50/70 border border-slate-200/80 rounded-2xl space-y-2.5 shadow-hairline">
+                      <span className="clinical-label">Diagnóstico Motor</span>
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">OD</label>
+                          <input
+                            type="text"
+                            placeholder="OD"
+                            value={eyeValue(anamneseData.dx.motor, 'od')}
+                            onChange={(event) => updateDxField('motor', 'od', event.target.value)}
+                            disabled={disabled || loadingDx || savingDx}
+                            className="clinical-input font-medium text-xs h-8"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">OE</label>
+                          <input
+                            type="text"
+                            placeholder="OE"
+                            value={eyeValue(anamneseData.dx.motor, 'oe')}
+                            onChange={(event) => updateDxField('motor', 'oe', event.target.value)}
+                            disabled={disabled || loadingDx || savingDx}
+                            className="clinical-input font-medium text-xs h-8"
+                          />
+                        </div>
+                      </div>
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Obs. Motor</label>
+                        <input
+                          type="text"
+                          placeholder="Observações do Motor"
+                          value={anamneseData.dx.motor?.observacoes ?? ''}
+                          onChange={(event) => updateDxField('motor', 'observacoes', event.target.value)}
+                          disabled={disabled || loadingDx || savingDx}
+                          className="clinical-input font-medium text-xs h-8"
+                        />
+                      </div>
                     </div>
-                    <div>
-                      <label className="clinical-label">Ocular</label>
-                      <input type="text" value={anamneseData.dx.patologico} onChange={(event) => updateClinicalSectionField('dx', 'patologico', event.target.value)} className="clinical-input font-medium" />
+
+                    {/* Diagnóstico Patológico */}
+                    <div className="p-3.5 bg-slate-50/70 border border-slate-200/80 rounded-2xl space-y-2.5 shadow-hairline flex flex-col justify-between">
+                      <label className="block">
+                        <span className="clinical-label mb-1">Diagnóstico Patológico</span>
+                        <input
+                          type="text"
+                          placeholder="Patológico"
+                          value={anamneseData.dx.patologico}
+                          onChange={(event) => updateDxField('patologico', null, event.target.value)}
+                          disabled={disabled || loadingDx || savingDx}
+                          className="clinical-input font-medium text-xs h-8 mt-4"
+                        />
+                      </label>
                     </div>
                   </div>
 
@@ -3455,33 +3890,9 @@ export default function AnamneseFichaClinica({ patient, consultation, disabled =
                   </div>
                   <div className="flex justify-end"><button type="button" onClick={saveDx} disabled={disabled || loadingDx || savingDx} className={saveButtonClass('dx')}>{savingDx ? <Clock className="w-3.5 h-3.5 animate-spin" /> : savedSection === 'dx' ? <Check className="w-3.5 h-3.5" /> : <Save className="w-3.5 h-3.5" />}<span>{savingDx ? 'Salvando...' : savedSection === 'dx' ? 'Salvo com sucesso' : 'Salvar DX'}</span></button></div>
                 </div>
-              )}
-            </div>
-          )}
-
-          {/* 16. FLEXIBILIDADE E FACILIDADE DE ACOMODAÇÃO */}
-          {isSectionEnabled('flexibilidadeAcomodacao') && (
-            <div data-clinical-section="flexibilidadeAcomodacao" className="border border-slate-200/90 rounded-2xl bg-white shadow-hairline overflow-hidden transition-all">
-              <button
-                onClick={() => toggleSection('flexibilidadeAcomodacao')}
-                className="w-full p-3.5 flex items-center justify-between bg-slate-50 hover:bg-forest-50/50 text-left transition-colors font-extrabold text-xs uppercase text-slate-900"
-              >
-                <div className="flex items-center space-x-2">
-                  {openSections['flexibilidadeAcomodacao'] ? <ChevronDown className="w-4 h-4 text-forest-700" /> : <ChevronRight className="w-4 h-4 text-slate-400" />}
-                  <span>16. Flexibilidade e Facilidade de Acomodação</span>
-                </div>
-                {openSections['flexibilidadeAcomodacao'] ? (
-                  <span className="text-[10px] font-bold text-forest-800 bg-forest-50 px-2 py-0.5 rounded-md border border-forest-200/80 uppercase">
-                    Aberto
-                  </span>
-                ) : (
-                  <span className="text-[10px] font-bold text-slate-500 uppercase">
-                    Abrir
-                  </span>
-                )}
-              </button>
-
-              {openSections['flexibilidadeAcomodacao'] && (
+        );
+      case 'flexibilidadeAcomodacao':
+        return (
                 <div className="p-5 space-y-4 text-xs border-t border-slate-200 animate-fade-in bg-white">
                   <label className="flex flex-col sm:flex-row sm:items-center gap-3">
                     <span className="font-semibold text-slate-700 sm:w-28 shrink-0">Técnica</span>
@@ -3497,114 +3908,59 @@ export default function AnamneseFichaClinica({ patient, consultation, disabled =
                       </div>
                     ))}
                   </div>
+                  <label className="flex flex-col sm:flex-row sm:items-center gap-3">
+                    <span className="font-semibold text-slate-700 sm:w-28 shrink-0">Adição</span>
+                    <input
+                      type="text"
+                      placeholder="Ex: +1.50, Add..."
+                      value={anamneseData.flexibilidadeAcomodacao.adicao}
+                      onChange={(event) => updateClinicalSectionField('flexibilidadeAcomodacao', 'adicao', event.target.value)}
+                      disabled={disabled || loadingAccommodationFacility || savingAccommodationFacility}
+                      className="clinical-input h-9 font-medium max-w-xs"
+                    />
+                  </label>
                   <label className="block"><span className="block font-bold text-slate-700 mb-1">Observações</span><textarea rows={2} value={anamneseData.flexibilidadeAcomodacao.observacoes} onChange={(event) => updateClinicalSectionField('flexibilidadeAcomodacao', 'observacoes', event.target.value)} className="clinical-input h-auto min-h-20 py-2 text-xs font-medium resize-y" /></label>
                   <div className="flex justify-end"><button type="button" onClick={saveAccommodationFacility} disabled={disabled || loadingAccommodationFacility || savingAccommodationFacility} className={saveButtonClass('flexibilidadeAcomodacao')}>{savingAccommodationFacility ? <Clock className="w-3.5 h-3.5 animate-spin" /> : savedSection === 'flexibilidadeAcomodacao' ? <Check className="w-3.5 h-3.5" /> : <Save className="w-3.5 h-3.5" />}<span>{savingAccommodationFacility ? 'Salvando...' : savedSection === 'flexibilidadeAcomodacao' ? 'Salvo com sucesso' : 'Salvar Flexibilidade'}</span></button></div>
                 </div>
-              )}
-            </div>
-          )}
-
-          {/* 17. ADIÇÃO */}
-          {isSectionEnabled('adicao') && (
-            <div data-clinical-section="adicao" className="border border-slate-200/90 rounded-2xl bg-white shadow-hairline overflow-hidden transition-all">
-              <button
-                onClick={() => toggleSection('adicao')}
-                className="w-full p-3.5 flex items-center justify-between bg-slate-50 hover:bg-forest-50/50 text-left transition-colors font-extrabold text-xs uppercase text-slate-900"
-              >
-                <div className="flex items-center space-x-2">
-                  {openSections['adicao'] ? <ChevronDown className="w-4 h-4 text-forest-700" /> : <ChevronRight className="w-4 h-4 text-slate-400" />}
-                  <span>17. Adição</span>
-                </div>
-                {openSections['adicao'] ? (
-                  <span className="text-[10px] font-bold text-forest-800 bg-forest-50 px-2 py-0.5 rounded-md border border-forest-200/80 uppercase">
-                    Aberto
-                  </span>
-                ) : (
-                  <span className="text-[10px] font-bold text-slate-500 uppercase">
-                    Abrir
-                  </span>
-                )}
-              </button>
-
-              {openSections['adicao'] && (
-                <div className="p-5 space-y-3 text-xs border-t border-slate-200 animate-fade-in bg-white">
-                  <div className="divide-y divide-slate-200">
-                    {['od', 'oe'].map((eye) => (
-                      <div key={eye} className="grid grid-cols-1 sm:grid-cols-[72px_minmax(0,1fr)_72px_minmax(0,1fr)] items-center gap-3 py-2.5">
-                        <span className="px-2 font-semibold text-slate-700 uppercase">{eye}</span>
-                        <input type="text" value={anamneseData.adicao[eye].valor} onChange={(event) => updateClinicalEyeField('adicao', eye, 'valor', event.target.value)} className="clinical-input text-center font-mono font-bold h-9" />
-                        <span className="font-semibold text-slate-700 text-center">AV</span>
-                        <input type="text" value={anamneseData.adicao[eye].av} onChange={(event) => updateClinicalEyeField('adicao', eye, 'av', event.target.value)} className="clinical-input text-center font-mono font-bold h-9" />
-                      </div>
-                    ))}
-                  </div>
-                  <label className="block"><span className="block font-bold text-slate-700 mb-1">Observações</span><textarea rows={2} value={anamneseData.adicao.observacoes} onChange={(event) => updateClinicalSectionField('adicao', 'observacoes', event.target.value)} className="clinical-input h-auto min-h-20 py-2 text-xs font-medium resize-y" /></label>
-                  <div className="flex justify-end"><button type="button" onClick={saveAddition} disabled={disabled || loadingAddition || savingAddition} className={saveButtonClass('adicao')}>{savingAddition ? <Clock className="w-3.5 h-3.5 animate-spin" /> : savedSection === 'adicao' ? <Check className="w-3.5 h-3.5" /> : <Save className="w-3.5 h-3.5" />}<span>{savingAddition ? 'Salvando...' : savedSection === 'adicao' ? 'Salvo com sucesso' : 'Salvar Adição'}</span></button></div>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* 18. PPC */}
-          {isSectionEnabled('ppc') && (
-            <div data-clinical-section="ppc" className="border border-slate-200/90 rounded-2xl bg-white shadow-hairline overflow-hidden transition-all">
-              <button
-                onClick={() => toggleSection('ppc')}
-                className="w-full p-3.5 flex items-center justify-between bg-slate-50 hover:bg-forest-50/50 text-left transition-colors font-extrabold text-xs uppercase text-slate-900"
-              >
-                <div className="flex items-center space-x-2">
-                  {openSections['ppc'] ? <ChevronDown className="w-4 h-4 text-forest-700" /> : <ChevronRight className="w-4 h-4 text-slate-400" />}
-                  <span>18. PPC (Ponto Próximo de Convergência)</span>
-                </div>
-                {openSections['ppc'] ? (
-                  <span className="text-[10px] font-bold text-forest-800 bg-forest-50 px-2 py-0.5 rounded-md border border-forest-200/80 uppercase">
-                    Aberto
-                  </span>
-                ) : (
-                  <span className="text-[10px] font-bold text-slate-500 uppercase">
-                    Abrir
-                  </span>
-                )}
-              </button>
-
-              {openSections['ppc'] && (
-                <div className="p-5 space-y-4 text-xs border-t border-slate-200 animate-fade-in bg-white">
-                  <div className="overflow-x-auto border border-slate-200/80 rounded-2xl shadow-hairline my-2"><table className="w-full text-left border-collapse text-xs">
+        );
+      case 'ppc':
+        return (
+                <div className="p-4 space-y-3 text-xs border-t border-slate-200 animate-fade-in">
+                  <div className="overflow-x-auto border border-slate-200/80 rounded-2xl shadow-hairline my-2">
+                    <table className="w-full text-center border-collapse text-xs">
                       <thead>
-                        <tr className="border-b border-slate-200/80">
-                          <th className="py-2.5 px-3 w-40 font-bold text-slate-500"></th>
-                          <th className="py-2.5 px-3 text-center font-bold text-slate-700 uppercase tracking-wider text-xs">
-                            S/C
-                          </th>
-                          <th className="py-2.5 px-3 text-center font-bold text-slate-700 uppercase tracking-wider text-xs">
-                            C/C
-                          </th>
+                        <tr className="bg-slate-100 border-b border-slate-200/80 font-extrabold text-[11px] text-slate-700 uppercase">
+                          <th className="py-2 px-3 text-left w-52">Teste</th>
+                          <th className="py-2 px-3">S/C</th>
+                          <th className="py-2 px-3">C/C</th>
                         </tr>
                       </thead>
-                      <tbody className="divide-y divide-slate-100">
+                      <tbody className="divide-y divide-slate-200 font-mono">
                         {[
                           { label: 'Objeto Real (OR)', key: 'objetoReal' },
                           { label: 'Luz Pontual', key: 'luzPontual' },
                           { label: 'Filtro Vermelho', key: 'filtroVermelho' }
                         ].map(row => (
-                          <tr key={row.label} className="hover:bg-slate-50/60">
-                            <td className="py-2.5 px-3 font-semibold text-slate-700 align-middle">
+                          <tr key={row.label} className="hover:bg-slate-50/50">
+                            <td className="py-2 px-3 text-left font-bold font-sans text-slate-800 text-xs">
                               {row.label}
                             </td>
-                            <td className="py-1.5 px-3 w-1/2">
+                            <td className="py-1 px-1.5 w-1/2">
                               <input
                                 type="text"
                                 value={anamneseData.ppc[row.key].semCorrecao}
                                 onChange={(event) => updateClinicalEyeField('ppc', row.key, 'semCorrecao', event.target.value)}
-                                className="clinical-input h-9 font-medium"
+                                disabled={disabled || loadingPpc || savingPpc}
+                                className="clinical-input h-8 text-center font-medium text-xs"
                               />
                             </td>
-                            <td className="py-1.5 px-3 w-1/2">
+                            <td className="py-1 px-1.5 w-1/2">
                               <input
                                 type="text"
                                 value={anamneseData.ppc[row.key].comCorrecao}
                                 onChange={(event) => updateClinicalEyeField('ppc', row.key, 'comCorrecao', event.target.value)}
-                                className="clinical-input h-9 font-medium"
+                                disabled={disabled || loadingPpc || savingPpc}
+                                className="clinical-input h-8 text-center font-medium text-xs"
                               />
                             </td>
                           </tr>
@@ -3612,36 +3968,61 @@ export default function AnamneseFichaClinica({ patient, consultation, disabled =
                       </tbody>
                     </table>
                   </div>
-                  <label className="block"><span className="block font-bold text-slate-700 mb-1">Observações</span><textarea rows={2} value={anamneseData.ppc.observacoes} onChange={(event) => updateClinicalSectionField('ppc', 'observacoes', event.target.value)} className="clinical-input h-auto min-h-20 py-2 text-xs font-medium resize-y" /></label>
-                  <div className="flex justify-end"><button type="button" onClick={savePpc} disabled={disabled || loadingPpc || savingPpc} className={saveButtonClass('ppc')}>{savingPpc ? <Clock className="w-3.5 h-3.5 animate-spin" /> : savedSection === 'ppc' ? <Check className="w-3.5 h-3.5" /> : <Save className="w-3.5 h-3.5" />}<span>{savingPpc ? 'Salvando...' : savedSection === 'ppc' ? 'Salvo com sucesso' : 'Salvar PPC'}</span></button></div>
-                </div>
-              )}
-            </div>
-          )}
 
-          {/* 19. REFLEXOS PUPILARES */}
-          {isSectionEnabled('reflexosPupilares') && (
-            <div data-clinical-section="reflexosPupilares" className="border border-slate-200/90 rounded-2xl bg-white shadow-hairline overflow-hidden transition-all">
-              <button
-                onClick={() => toggleSection('reflexosPupilares')}
-                className="w-full p-3.5 flex items-center justify-between bg-slate-50 hover:bg-forest-50/50 text-left transition-colors font-extrabold text-xs uppercase text-slate-900"
-              >
-                <div className="flex items-center space-x-2">
-                  {openSections['reflexosPupilares'] ? <ChevronDown className="w-4 h-4 text-forest-700" /> : <ChevronRight className="w-4 h-4 text-slate-400" />}
-                  <span>19. Reflexos Pupilares</span>
-                </div>
-                {openSections['reflexosPupilares'] ? (
-                  <span className="text-[10px] font-bold text-forest-800 bg-forest-50 px-2 py-0.5 rounded-md border border-forest-200/80 uppercase">
-                    Aberto
-                  </span>
-                ) : (
-                  <span className="text-[10px] font-bold text-slate-500 uppercase">
-                    Abrir
-                  </span>
-                )}
-              </button>
+                  {/* Campo de Olho Dominante - Exclusivamente OD ou OE */}
+                  <div className="bg-slate-50/80 p-3 rounded-xl border border-slate-200/70">
+                    <div className="flex items-center space-x-3">
+                      <span className="text-[10px] font-bold uppercase text-slate-700">
+                        Olho Dominante:
+                      </span>
+                      <div className="inline-flex rounded-lg border border-slate-200 bg-white p-0.5 shadow-sm">
+                        {['OD', 'OE'].map((opt) => {
+                          const isSelected = (anamneseData.ppc.olhoDominante || '').toUpperCase() === opt;
+                          return (
+                            <button
+                              key={opt}
+                              type="button"
+                              onClick={() => updateClinicalSectionField('ppc', 'olhoDominante', isSelected ? '' : opt)}
+                              disabled={disabled || loadingPpc || savingPpc}
+                              className={`px-4 py-1 text-xs font-semibold rounded-md transition-colors ${
+                                isSelected
+                                  ? 'bg-forest-600 text-white shadow-xs'
+                                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
+                              }`}
+                            >
+                              {opt}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </div>
 
-              {openSections['reflexosPupilares'] && (
+                  <label className="block">
+                    <span className="block font-bold text-slate-700 mb-1">Observações</span>
+                    <textarea
+                      rows={2}
+                      value={anamneseData.ppc.observacoes}
+                      onChange={(event) => updateClinicalSectionField('ppc', 'observacoes', event.target.value)}
+                      disabled={disabled || loadingPpc || savingPpc}
+                      className="clinical-input h-auto min-h-20 py-2 text-xs font-medium resize-y"
+                    />
+                  </label>
+                  <div className="flex justify-end">
+                    <button
+                      type="button"
+                      onClick={savePpc}
+                      disabled={disabled || loadingPpc || savingPpc}
+                      className={saveButtonClass('ppc')}
+                    >
+                      {savingPpc ? <Clock className="w-3.5 h-3.5 animate-spin" /> : savedSection === 'ppc' ? <Check className="w-3.5 h-3.5" /> : <Save className="w-3.5 h-3.5" />}
+                      <span>{savingPpc ? 'Salvando...' : savedSection === 'ppc' ? 'Salvo com sucesso' : 'Salvar PPC'}</span>
+                    </button>
+                  </div>
+                </div>
+        );
+      case 'reflexosPupilares':
+        return (
                 <div className="p-5 space-y-4 text-xs border-t border-slate-200 animate-fade-in bg-white">
                   <div className="overflow-x-auto border border-slate-200/80 rounded-2xl shadow-hairline my-2"><table className="w-full text-left border-collapse text-xs">
                       <thead>
@@ -3689,33 +4070,9 @@ export default function AnamneseFichaClinica({ patient, consultation, disabled =
                   <label className="block"><span className="block font-bold text-slate-700 mb-1">Observações</span><textarea rows={2} value={anamneseData.reflexosPupilares.observacoes} onChange={(event) => updateClinicalSectionField('reflexosPupilares', 'observacoes', event.target.value)} className="clinical-input h-auto min-h-20 py-2 text-xs font-medium resize-y" /></label>
                   <div className="flex justify-end"><button type="button" onClick={savePupillaryReflexes} disabled={disabled || loadingPupillaryReflexes || savingPupillaryReflexes} className={saveButtonClass('reflexosPupilares')}>{savingPupillaryReflexes ? <Clock className="w-3.5 h-3.5 animate-spin" /> : savedSection === 'reflexosPupilares' ? <Check className="w-3.5 h-3.5" /> : <Save className="w-3.5 h-3.5" />}<span>{savingPupillaryReflexes ? 'Salvando...' : savedSection === 'reflexosPupilares' ? 'Salvo com sucesso' : 'Salvar Reflexos'}</span></button></div>
                 </div>
-              )}
-            </div>
-          )}
-
-          {/* 20. RESERVAS FUSIONAIS */}
-          {isSectionEnabled('reservasFusionais') && (
-            <div data-clinical-section="reservasFusionais" className="border border-slate-200/90 rounded-2xl bg-white shadow-hairline overflow-hidden transition-all">
-              <button
-                onClick={() => toggleSection('reservasFusionais')}
-                className="w-full p-3.5 flex items-center justify-between bg-slate-50 hover:bg-forest-50/50 text-left transition-colors font-extrabold text-xs uppercase text-slate-900"
-              >
-                <div className="flex items-center space-x-2">
-                  {openSections['reservasFusionais'] ? <ChevronDown className="w-4 h-4 text-forest-700" /> : <ChevronRight className="w-4 h-4 text-slate-400" />}
-                  <span>20. Reservas Fusionais</span>
-                </div>
-                {openSections['reservasFusionais'] ? (
-                  <span className="text-[10px] font-bold text-forest-800 bg-forest-50 px-2 py-0.5 rounded-md border border-forest-200/80 uppercase">
-                    Aberto
-                  </span>
-                ) : (
-                  <span className="text-[10px] font-bold text-slate-500 uppercase">
-                    Abrir
-                  </span>
-                )}
-              </button>
-
-              {openSections['reservasFusionais'] && (
+        );
+      case 'reservasFusionais':
+        return (
                 <div className="p-5 space-y-4 text-xs border-t border-slate-200 animate-fade-in bg-white">
                   {/* Linha Superior Técnica */}
                   <div className="flex flex-col sm:flex-row sm:items-center gap-3">
@@ -3776,78 +4133,80 @@ export default function AnamneseFichaClinica({ patient, consultation, disabled =
                   <label className="block"><span className="block font-bold text-slate-700 mb-1">Observações</span><textarea rows={2} value={anamneseData.reservasFusionais.observacoes} onChange={(event) => updateClinicalSectionField('reservasFusionais', 'observacoes', event.target.value)} className="clinical-input h-auto min-h-20 py-2 text-xs font-medium resize-y" /></label>
                   <div className="flex justify-end"><button type="button" onClick={saveFusionalReserves} disabled={disabled || loadingFusionalReserves || savingFusionalReserves} className={saveButtonClass('reservasFusionais')}>{savingFusionalReserves ? <Clock className="w-3.5 h-3.5 animate-spin" /> : savedSection === 'reservasFusionais' ? <Check className="w-3.5 h-3.5" /> : <Save className="w-3.5 h-3.5" />}<span>{savingFusionalReserves ? 'Salvando...' : savedSection === 'reservasFusionais' ? 'Salvo com sucesso' : 'Salvar Reservas'}</span></button></div>
                 </div>
-              )}
+        );
+      case 'subjetivo':
+        return (
+          <div className="p-4 space-y-3 text-xs border-t border-slate-200 animate-fade-in">
+            <div className="overflow-x-auto border border-slate-200/80 rounded-2xl shadow-hairline my-2">
+              <table className="w-full min-w-[680px] text-center border-collapse text-xs">
+                <thead>
+                  <tr className="bg-slate-100 border-b border-slate-200/80 font-extrabold text-[11px] text-slate-700 uppercase">
+                    <th className="py-2 px-3 text-left">Olho</th>
+                    <th className="py-2 px-3">Esférico</th>
+                    <th className="py-2 px-3">Cilíndrico</th>
+                    <th className="py-2 px-3">Eixo</th>
+                    <th className="py-2 px-3">AV</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-200 font-mono">
+                  {['od', 'oe'].map((eye) => (
+                    <tr key={eye} className="hover:bg-slate-50/50">
+                      <td className="py-2 px-3 text-left font-bold font-sans uppercase">{eye}</td>
+                      {[
+                        ['esferico', 'number', '0.25'],
+                        ['cilindrico', 'number', '0.25'],
+                        ['eixo', 'number', '1'],
+                        ['av', 'text', undefined],
+                      ].map(([field, type, step]) => (
+                        <td key={field} className="py-1 px-1">
+                          <input
+                            type={type}
+                            step={step}
+                            min={field === 'eixo' ? 0 : undefined}
+                            max={field === 'eixo' ? 180 : undefined}
+                            value={anamneseData.subjetivo[eye][field]}
+                            onChange={(event) => updateClinicalEyeField('subjetivo', eye, field, event.target.value)}
+                            onBlur={(event) => {
+                              if (field === 'esferico' || field === 'cilindrico') {
+                                updateClinicalEyeField('subjetivo', eye, field, formatDiopter(event.target.value));
+                              } else if (field === 'eixo') {
+                                updateClinicalEyeField('subjetivo', eye, field, formatAxis(event.target.value));
+                              }
+                            }}
+                            disabled={disabled || loadingSubjective || savingSubjective}
+                            className="clinical-input h-8 text-center font-mono font-bold text-xs"
+                          />
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
-          )}
-
-          {/* 21. SUBJETIVO */}
-          {isSectionEnabled('subjetivo') && (
-            <div data-clinical-section="subjetivo" className="border border-slate-200/90 rounded-2xl bg-white shadow-hairline overflow-hidden transition-all">
+            <textarea
+              rows={3}
+              aria-label="Observações do Subjetivo"
+              value={anamneseData.subjetivo.observacoes}
+              onChange={(event) => updateClinicalSectionField('subjetivo', 'observacoes', event.target.value)}
+              disabled={disabled || loadingSubjective || savingSubjective}
+              className="clinical-input h-auto min-h-20 py-2 text-xs font-medium resize-y"
+              placeholder="Observações"
+            />
+            <div className="flex justify-end">
               <button
-                onClick={() => toggleSection('subjetivo')}
-                className="w-full p-3.5 flex items-center justify-between bg-slate-50 hover:bg-forest-50/50 text-left transition-colors font-extrabold text-xs uppercase text-slate-900"
+                type="button"
+                onClick={saveSubjective}
+                disabled={disabled || loadingSubjective || savingSubjective}
+                className={saveButtonClass('subjetivo')}
               >
-                <div className="flex items-center space-x-2">
-                  {openSections['subjetivo'] ? <ChevronDown className="w-4 h-4 text-forest-700" /> : <ChevronRight className="w-4 h-4 text-slate-400" />}
-                  <span>21. Subjetivo</span>
-                </div>
-                {openSections['subjetivo'] ? (
-                  <span className="text-[10px] font-bold text-forest-800 bg-forest-50 px-2 py-0.5 rounded-md border border-forest-200/80 uppercase">
-                    Aberto
-                  </span>
-                ) : (
-                  <span className="text-[10px] font-bold text-slate-500 uppercase">
-                    Abrir
-                  </span>
-                )}
+                {savingSubjective ? <Clock className="w-3.5 h-3.5 animate-spin" /> : savedSection === 'subjetivo' ? <Check className="w-3.5 h-3.5" /> : <Save className="w-3.5 h-3.5" />}
+                <span>{savingSubjective ? 'Salvando...' : savedSection === 'subjetivo' ? 'Salvo com sucesso' : 'Salvar Subjetivo'}</span>
               </button>
-
-              {openSections['subjetivo'] && (
-                <div className="p-5 space-y-4 text-xs border-t border-slate-200 animate-fade-in bg-white">
-                  <div className="overflow-x-auto border border-slate-200/80 rounded-2xl shadow-hairline my-2"><table className="w-full min-w-[680px] text-left border-collapse">
-                      <thead><tr className="border-b border-slate-200/80"><th className="py-2 px-3 w-16"></th>{[['esferico', 'Esférico'], ['cilindrico', 'Cilíndrico'], ['eixo', 'Eixo'], ['av', 'AV']].map(([, label]) => <th key={label} className="py-2 px-3 text-center font-bold text-slate-700 uppercase">{label}</th>)}</tr></thead>
-                      <tbody className="divide-y divide-slate-200">
-                        {['od', 'oe'].map((eye) => (
-                          <tr key={eye}>
-                            <td className="py-2 px-3 font-bold text-slate-700 uppercase">{eye}</td>
-                            {['esferico', 'cilindrico', 'eixo', 'av'].map((field) => (
-                              <td key={field} className="py-1.5 px-2"><input type={field === 'eixo' ? 'number' : 'text'} min={field === 'eixo' ? 0 : undefined} max={field === 'eixo' ? 180 : undefined} value={anamneseData.subjetivo[eye][field]} onChange={(event) => updateClinicalEyeField('subjetivo', eye, field, event.target.value)} className="clinical-input text-center font-mono font-bold h-9" /></td>
-                            ))}
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                  <label className="block"><span className="block font-bold text-slate-700 mb-1">Observações</span><textarea rows={2} value={anamneseData.subjetivo.observacoes} onChange={(event) => updateClinicalSectionField('subjetivo', 'observacoes', event.target.value)} className="clinical-input h-auto min-h-20 py-2 text-xs font-medium resize-y" /></label>
-                  <div className="flex justify-end"><button type="button" onClick={saveSubjective} disabled={disabled || loadingSubjective || savingSubjective} className={saveButtonClass('subjetivo')}>{savingSubjective ? <Clock className="w-3.5 h-3.5 animate-spin" /> : savedSection === 'subjetivo' ? <Check className="w-3.5 h-3.5" /> : <Save className="w-3.5 h-3.5" />}<span>{savingSubjective ? 'Salvando...' : savedSection === 'subjetivo' ? 'Salvo com sucesso' : 'Salvar Subjetivo'}</span></button></div>
-                </div>
-              )}
             </div>
-          )}
-
-          {/* 22. TESTE AMBULATORIAL */}
-          {isSectionEnabled('testeAmbulatorial') && (
-            <div data-clinical-section="testeAmbulatorial" className="border border-slate-200/90 rounded-2xl bg-white shadow-hairline overflow-hidden transition-all">
-              <button
-                onClick={() => toggleSection('testeAmbulatorial')}
-                className="w-full p-3.5 flex items-center justify-between bg-slate-50 hover:bg-forest-50/50 text-left transition-colors font-extrabold text-xs uppercase text-slate-900"
-              >
-                <div className="flex items-center space-x-2">
-                  {openSections['testeAmbulatorial'] ? <ChevronDown className="w-4 h-4 text-forest-700" /> : <ChevronRight className="w-4 h-4 text-slate-400" />}
-                  <span>22. Teste Ambulatorial</span>
-                </div>
-                {openSections['testeAmbulatorial'] ? (
-                  <span className="text-[10px] font-bold text-forest-800 bg-forest-50 px-2 py-0.5 rounded-md border border-forest-200/80 uppercase">
-                    Aberto
-                  </span>
-                ) : (
-                  <span className="text-[10px] font-bold text-slate-500 uppercase">
-                    Abrir
-                  </span>
-                )}
-              </button>
-
-              {openSections['testeAmbulatorial'] && (
+          </div>
+        );
+      case 'testeAmbulatorial':
+        return (
                 <div className="p-5 space-y-4 text-xs border-t border-slate-200 animate-fade-in bg-white">
                   <div className="grid grid-cols-1 sm:grid-cols-[220px_minmax(0,1fr)] gap-3">
                     <label className="block"><span className="block font-bold text-slate-700 mb-1">Tempo de Teste (minutos)</span><input type="number" min="0" value={anamneseData.testeAmbulatorial.tempoMinutos} onChange={(event) => updateClinicalSectionField('testeAmbulatorial', 'tempoMinutos', event.target.value)} className="clinical-input h-9 font-medium" /></label>
@@ -3856,10 +4215,126 @@ export default function AnamneseFichaClinica({ patient, consultation, disabled =
                   <label className="block"><span className="block font-bold text-slate-700 mb-1">Observações</span><textarea rows={2} value={anamneseData.testeAmbulatorial.observacoes} onChange={(event) => updateClinicalSectionField('testeAmbulatorial', 'observacoes', event.target.value)} className="clinical-input h-auto min-h-20 py-2 text-xs font-medium resize-y" /></label>
                   <div className="flex justify-end"><button type="button" onClick={saveAmbulatoryTest} disabled={disabled || loadingAmbulatoryTest || savingAmbulatoryTest} className={saveButtonClass('testeAmbulatorial')}>{savingAmbulatoryTest ? <Clock className="w-3.5 h-3.5 animate-spin" /> : savedSection === 'testeAmbulatorial' ? <Check className="w-3.5 h-3.5" /> : <Save className="w-3.5 h-3.5" />}<span>{savingAmbulatoryTest ? 'Salvando...' : savedSection === 'testeAmbulatorial' ? 'Salvo com sucesso' : 'Salvar Teste'}</span></button></div>
                 </div>
-              )}
+        );
+      default:
+        return null;
+    }
+  };
+
+  return (
+    <div ref={containerRef} className={`space-y-4 ${disabled ? 'opacity-80' : ''}`}>
+      
+      {/* Sub navigation: Início vs Histórico */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-2 border-b border-slate-100">
+        <div className="flex items-center space-x-1 bg-slate-100/80 p-1 rounded-xl border border-slate-200/60 text-xs font-bold">
+          <button
+            onClick={() => setSubTab('inicio')}
+            className={`px-3.5 py-1.5 rounded-lg transition-all flex items-center space-x-1.5 ${
+              subTab === 'inicio' 
+                ? 'bg-forest-700 text-white shadow-hairline' 
+                : 'text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            <FileText className="w-3.5 h-3.5" />
+            <span>Início (Ficha Clínica da Consulta)</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setSubTab('historico')}
+            className={`px-3.5 py-1.5 rounded-lg transition-all flex items-center space-x-1.5 ${
+              subTab === 'historico' 
+                ? 'bg-forest-700 text-white shadow-hairline' 
+                : 'text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            <History className="w-3.5 h-3.5" />
+            <span>Histórico de Fichas Anteriores</span>
+          </button>
+        </div>
+
+        {subTab === 'inicio' && (
+          <div className="flex items-center space-x-2">
+            <button 
+              onClick={() => toggleAll(true)}
+              className="btn-secondary py-1.5 px-3"
+            >
+              Expandir Todos
+            </button>
+            <button 
+              onClick={() => toggleAll(false)}
+              className="btn-secondary py-1.5 px-3"
+            >
+              Recolher Todos
+            </button>
+            <button 
+              type="button"
+              disabled={disabled || savingAllSections || isAnySectionLoading || isAnySectionSaving}
+              onClick={saveAllClinicalSections}
+              className={saveButtonClass('allClinicalSections')}
+            >
+              {savingAllSections ? <Clock className="w-3.5 h-3.5 animate-spin" /> : savedSection === 'allClinicalSections' ? <Check className="w-3.5 h-3.5" /> : <Save className="w-3.5 h-3.5" />}
+              <span>{savingAllSections ? 'Salvando...' : savedSection === 'allClinicalSections' ? 'Salvo com sucesso' : 'Salvar Ficha'}</span>
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* ========================================================================= */}
+      {/* SUBTAB 1: INÍCIO (ACCORDIONS DE TODOS OS CAMPOS FECHADOS POR PADRÃO)      */}
+      {/* ========================================================================= */}
+      {subTab === 'inicio' && (
+        <fieldset disabled={savingAllSections} className="space-y-2 disabled:opacity-75">
+
+          {/* Mensagem caso todas as seções estejam desativadas */}
+          {clinicalConfig.length > 0 && clinicalConfig.every(s => s.enabled === false) && (
+            <div className="p-8 text-center bg-slate-50 border border-dashed border-slate-300 rounded-2xl">
+              <FileText className="w-10 h-10 text-slate-400 mx-auto mb-2" />
+              <h4 className="font-bold text-sm text-slate-800">Nenhuma seção ativa na Ficha Clínica</h4>
+              <p className="text-xs text-slate-500 mt-1 max-w-md mx-auto">
+                Todas as seções da ficha clínica estão desativadas no momento. Acesse a tela de Configurações para ativar as seções desejadas.
+              </p>
             </div>
           )}
+          {/* Renderização Dinâmica das Seções Conforme Configuração e Ordem */}
+          {clinicalConfig
+            .filter((sec) => isSectionEnabled(sec.id))
+            .map((sec, index) => {
+              const isOpened = Boolean(openSections[sec.id]);
+              return (
+                <div
+                  key={sec.id}
+                  data-clinical-section={sec.id}
+                  className="border border-slate-200/90 rounded-2xl bg-white shadow-hairline overflow-hidden transition-all"
+                >
+                  <button
+                    type="button"
+                    onClick={() => toggleSection(sec.id)}
+                    className="w-full p-3.5 sm:p-4 flex items-center justify-between bg-slate-50/80 hover:bg-forest-50/20 text-left transition-colors font-bold text-xs uppercase text-slate-900 border-b border-slate-100"
+                  >
+                    <div className="flex items-center space-x-2">
+                      {isOpened ? (
+                        <ChevronDown className="w-4 h-4 text-forest-700" />
+                      ) : (
+                        <ChevronRight className="w-4 h-4 text-slate-400" />
+                      )}
+                      <span>{index + 1}. {sec.title}</span>
+                    </div>
+                    {isOpened ? (
+                      <span className="text-[10px] font-bold text-forest-800 bg-forest-50 px-2 py-0.5 rounded-md border border-forest-200/80 uppercase">
+                        Aberto
+                      </span>
+                    ) : (
+                      <span className="text-[10px] font-bold text-slate-500 uppercase">
+                        Abrir
+                      </span>
+                    )}
+                  </button>
 
+                  {isOpened && renderSectionContent(sec.id)}
+                </div>
+              );
+            })}
         </fieldset>
       )}
 

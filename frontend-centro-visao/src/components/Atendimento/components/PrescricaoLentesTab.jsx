@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Save, Printer, History } from 'lucide-react';
+import { formatDiopter, formatAxis } from '../../../utils/formatters';
 
 export default function PrescricaoLentesTab({
   contactLensForm,
@@ -24,42 +25,40 @@ export default function PrescricaoLentesTab({
                 : 'text-slate-600 hover:text-slate-900'
             }`}
           >
-            Adaptação & Prescrição
+            Prescrição
           </button>
           <button
             type="button"
             onClick={() => setSubTab('historico')}
-            className={`px-3.5 py-1.5 font-bold text-xs rounded-lg transition-all flex items-center space-x-1.5 ${
+            className={`px-3.5 py-1.5 font-bold text-xs rounded-lg transition-all ${
               subTab === 'historico'
                 ? 'bg-forest-700 text-white shadow-hairline'
                 : 'text-slate-600 hover:text-slate-900'
             }`}
           >
-            <History className="w-3.5 h-3.5" />
-            <span>Histórico de Lentes</span>
+            Histórico
           </button>
         </div>
 
-        {subTab === 'inicio' && (
-          <div className="flex items-center space-x-2">
-            <button
-              type="button"
-              onClick={onPrint}
-              className="btn-secondary py-1.5 px-3"
-            >
-              <Printer className="w-3.5 h-3.5" />
-              <span>Imprimir Receita</span>
-            </button>
-            <button
-              type="button"
-              onClick={onSave}
-              className="btn-primary py-1.5 px-3"
-            >
-              <Save className="w-3.5 h-3.5" />
-              <span>Salvar Prescrição</span>
-            </button>
-          </div>
-        )}
+        {/* Action Buttons */}
+        <div className="flex items-center space-x-2">
+          <button
+            type="button"
+            onClick={onPrint}
+            className="clinical-button-secondary py-1.5 px-3 text-xs flex items-center space-x-1.5"
+          >
+            <Printer className="w-3.5 h-3.5 text-slate-500" />
+            <span>Imprimir Lentes</span>
+          </button>
+          <button
+            type="button"
+            onClick={onSave}
+            className="clinical-button-primary py-1.5 px-3.5 text-xs flex items-center space-x-1.5 shadow-hairline"
+          >
+            <Save className="w-3.5 h-3.5" />
+            <span>Salvar Lentes</span>
+          </button>
+        </div>
       </div>
 
       <div className="p-5 sm:p-6 space-y-5">
@@ -82,25 +81,33 @@ export default function PrescricaoLentesTab({
                 </td>
                 <td className="p-1.5 border-r border-slate-200/80">
                   <input
-                    type="text"
+                    type="number"
+                    step="0.25"
                     value={contactLensForm?.od?.esf || ''}
                     onChange={(e) => setContactLensForm({ ...contactLensForm, od: { ...contactLensForm?.od, esf: e.target.value } })}
+                    onBlur={(e) => setContactLensForm({ ...contactLensForm, od: { ...contactLensForm?.od, esf: formatDiopter(e.target.value) } })}
                     className="clinical-input text-center font-mono font-bold"
                   />
                 </td>
                 <td className="p-1.5 border-r border-slate-200/80">
                   <input
-                    type="text"
+                    type="number"
+                    step="0.25"
                     value={contactLensForm?.od?.cil || ''}
                     onChange={(e) => setContactLensForm({ ...contactLensForm, od: { ...contactLensForm?.od, cil: e.target.value } })}
+                    onBlur={(e) => setContactLensForm({ ...contactLensForm, od: { ...contactLensForm?.od, cil: formatDiopter(e.target.value) } })}
                     className="clinical-input text-center font-mono font-bold"
                   />
                 </td>
                 <td className="p-1.5 border-r border-slate-200/80">
                   <input
-                    type="text"
+                    type="number"
+                    step="1"
+                    min="0"
+                    max="180"
                     value={contactLensForm?.od?.eixo || ''}
                     onChange={(e) => setContactLensForm({ ...contactLensForm, od: { ...contactLensForm?.od, eixo: e.target.value } })}
+                    onBlur={(e) => setContactLensForm({ ...contactLensForm, od: { ...contactLensForm?.od, eixo: formatAxis(e.target.value) } })}
                     className="clinical-input text-center font-mono font-bold"
                   />
                 </td>
@@ -120,25 +127,33 @@ export default function PrescricaoLentesTab({
                 </td>
                 <td className="p-1.5 border-r border-slate-200/80">
                   <input
-                    type="text"
+                    type="number"
+                    step="0.25"
                     value={contactLensForm?.oe?.esf || ''}
                     onChange={(e) => setContactLensForm({ ...contactLensForm, oe: { ...contactLensForm?.oe, esf: e.target.value } })}
+                    onBlur={(e) => setContactLensForm({ ...contactLensForm, oe: { ...contactLensForm?.oe, esf: formatDiopter(e.target.value) } })}
                     className="clinical-input text-center font-mono font-bold"
                   />
                 </td>
                 <td className="p-1.5 border-r border-slate-200/80">
                   <input
-                    type="text"
+                    type="number"
+                    step="0.25"
                     value={contactLensForm?.oe?.cil || ''}
                     onChange={(e) => setContactLensForm({ ...contactLensForm, oe: { ...contactLensForm?.oe, cil: e.target.value } })}
+                    onBlur={(e) => setContactLensForm({ ...contactLensForm, oe: { ...contactLensForm?.oe, cil: formatDiopter(e.target.value) } })}
                     className="clinical-input text-center font-mono font-bold"
                   />
                 </td>
                 <td className="p-1.5 border-r border-slate-200/80">
                   <input
-                    type="text"
+                    type="number"
+                    step="1"
+                    min="0"
+                    max="180"
                     value={contactLensForm?.oe?.eixo || ''}
                     onChange={(e) => setContactLensForm({ ...contactLensForm, oe: { ...contactLensForm?.oe, eixo: e.target.value } })}
+                    onBlur={(e) => setContactLensForm({ ...contactLensForm, oe: { ...contactLensForm?.oe, eixo: formatAxis(e.target.value) } })}
                     className="clinical-input text-center font-mono font-bold"
                   />
                 </td>

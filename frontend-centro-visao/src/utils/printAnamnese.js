@@ -93,14 +93,16 @@ export function generateAnamnesisHtml(data = {}, patient = {}, clinicInfo = {}, 
   const usoOculos = Array.isArray(data.usoOculos)
     ? data.usoOculos.includes('Usa Óculos')
     : asBoolean(data.uso_oculos);
-  const usoLentes = Array.isArray(data.usoLentes)
-    ? data.usoLentes.includes('Usa Lente de Contato?')
-    : asBoolean(data.uso_lente);
-  const difLonge = Array.isArray(data.usoOculos) || Array.isArray(data.usoLentes)
-    ? (data.usoOculos || []).includes('Dificuldade Longe') || (data.usoLentes || []).includes('Dificuldade Longe')
+  const usoLentes = typeof data.usoLentes === 'string'
+    ? data.usoLentes.toLowerCase() === 'sim'
+    : Array.isArray(data.usoLentes)
+      ? data.usoLentes.includes('Usa Lente de Contato?')
+      : asBoolean(data.uso_lente);
+  const difLonge = Array.isArray(data.usoOculos)
+    ? data.usoOculos.includes('Dificuldade Longe')
     : asBoolean(data.dificuldade_longe);
-  const difPerto = Array.isArray(data.usoOculos) || Array.isArray(data.usoLentes)
-    ? (data.usoOculos || []).includes('Dificuldade Perto') || (data.usoLentes || []).includes('Dificuldade Perto')
+  const difPerto = Array.isArray(data.usoOculos)
+    ? data.usoOculos.includes('Dificuldade Perto')
     : asBoolean(data.dificuldade_perto);
 
   // Cefaleia
