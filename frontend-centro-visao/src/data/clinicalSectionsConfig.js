@@ -14,8 +14,7 @@ export const DEFAULT_CLINICAL_SECTIONS = [
   { id: 'amplitudeAcomodacao', title: 'Amplitude de Acomodação', subtitle: 'Técnica Sheard 40 cm e níveis OD/OE', enabled: true },
   { id: 'afinamento', title: 'Afinamento', subtitle: 'Ajuste fino esférico e cilíndrico', enabled: true },
   { id: 'dx', title: 'DX (Diagnóstico e Conduta)', subtitle: 'Diagnósticos refrativo/motor/ocular e conduta', enabled: true },
-  { id: 'flexibilidadeAcomodacao', title: 'Flexibilidade e Facilidade de Acomodação', subtitle: 'Teste Flipper 40 cm e ciclos/min', enabled: true },
-  { id: 'adicao', title: 'Adição', subtitle: 'Cálculo de adição para perto OD/OE', enabled: true },
+  { id: 'flexibilidadeAcomodacao', title: 'Flexibilidade e Facilidade de Acomodação', subtitle: 'Teste Flipper 40 cm, ciclos/min e adição', enabled: true },
   { id: 'ppc', title: 'PPC (Ponto Próximo de Convergência)', subtitle: 'Ponto de quebra e recuperação OR/Luz/Filtro', enabled: true },
   { id: 'reflexosPupilares', title: 'Reflexos Pupilares', subtitle: 'Fotomotor, Consensual e Acomodativo OD/OE', enabled: true },
   { id: 'reservasFusionais', title: 'Reservas Fusionais', subtitle: 'RFN e RFP em visão de longe e perto', enabled: true },
@@ -110,7 +109,7 @@ export function normalizeFromApi(apiItems) {
     }
   }
 
-  return normalized;
+  return normalized.sort((a, b) => (a.ordem ?? 0) - (b.ordem ?? 0));
 }
 
 export function normalizeToApi(frontendSections) {
@@ -134,7 +133,7 @@ export function getStoredClinicalSections() {
       if (Array.isArray(parsed) && parsed.length > 0) {
         // Garantir que todos os IDs padrão estejam presentes
         const savedIds = new Set(parsed.map(s => normalizeSectionId(s.id)));
-        const normalizedParsed = parsed.map(s => {
+        const normalizedParsed = parsed.map((s, idx) => {
           const id = normalizeSectionId(s.id);
           const def = DEFAULT_CLINICAL_SECTIONS.find(d => d.id === id);
           return {
@@ -147,10 +146,11 @@ export function getStoredClinicalSections() {
               && normalizeFlag(s.exibeTela ?? s.exibe_tela, true),
             exibeTela: normalizeFlag(s.exibeTela ?? s.exibe_tela, true),
             exibeImpressao: normalizeFlag(s.exibeImpressao ?? s.exibe_impressao, true),
+            ordem: typeof s.ordem === 'number' ? s.ordem : idx + 1,
           };
         });
         const missing = DEFAULT_CLINICAL_SECTIONS.filter(s => !savedIds.has(s.id));
-        return [...normalizedParsed, ...missing];
+        return [...normalizedParsed, ...missing].sort((a, b) => (a.ordem ?? 0) - (b.ordem ?? 0));
       }
     }
   } catch (e) {

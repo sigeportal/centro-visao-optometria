@@ -17,6 +17,11 @@ type
     FDataRetorno: TDateTime;
     FMotivo: string;
     FObservacao: string;
+    FTemRetorno: Integer;
+    FTemNovaConsulta: Integer;
+    FNovaConsultaData: TDateTime;
+    FNovaConsultaMotivo: string;
+    FNovaConsultaObservacao: string;
     FCriadoPor: Integer;
     FCriadoEm: TDateTime;
     FAtualizadoPor: Integer;
@@ -42,6 +47,21 @@ type
 
     [TCampo('RET_OBSERVACAO', 'BLOB SUB_TYPE TEXT')]
     property Observacao: string read FObservacao write FObservacao;
+
+    [TCampo('RET_TEM_RETORNO', 'SMALLINT DEFAULT 1')]
+    property TemRetorno: Integer read FTemRetorno write FTemRetorno;
+
+    [TCampo('RET_TEM_NOVA_CONSULTA', 'SMALLINT DEFAULT 0')]
+    property TemNovaConsulta: Integer read FTemNovaConsulta write FTemNovaConsulta;
+
+    [TCampo('RET_NOVA_CONSULTA_DATA', 'DATE')]
+    property NovaConsultaData: TDateTime read FNovaConsultaData write FNovaConsultaData;
+
+    [TCampo('RET_NOVA_CONSULTA_MOTIVO', 'VARCHAR(255)')]
+    property NovaConsultaMotivo: string read FNovaConsultaMotivo write FNovaConsultaMotivo;
+
+    [TCampo('RET_NOVA_CONSULTA_OBSERVACAO', 'BLOB SUB_TYPE TEXT')]
+    property NovaConsultaObservacao: string read FNovaConsultaObservacao write FNovaConsultaObservacao;
 
     [TCampo('RET_CRIADO_POR', 'INTEGER')]
     property CriadoPor: Integer read FCriadoPor write FCriadoPor;

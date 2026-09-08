@@ -26,8 +26,8 @@ import RichTextEditor, { sanitizeRichTextHtml } from '../../Common/RichTextEdito
 
 const ANAMNESIS_OPTIONS = {
   sintomas: [
-    'Prurido', 'Fotofobia', 'Hiperemia', 'Pterígio', 'Epífera', 'Trauma',
-    'Vermelhidão', 'Ardência', 'Dor Ocular', 'Lacrimejamento', 'Força a Visão',
+    'Prurido', 'Fotofobia', 'Hiperemia', 'Epífera', 'Trauma',
+    'Ardência', 'Dor Ocular', 'Lacrimejamento', 'Força a Visão',
     'Cansaço Visual', 'Sensibilidade à Luz',
   ],
   doencasOculares: ['Glaucoma', 'Catarata', 'Pterígio', 'Ceratocone', 'Estrabismo', 'Conjuntivite'],
@@ -38,7 +38,7 @@ const ANAMNESIS_OPTIONS = {
   ],
   antecedentes: ['Diabetes', 'Estrabismo', 'Glaucoma', 'Pressão Alta', 'Catarata', 'Alguém usa óculos?'],
   cefaleiaLocal: ['Frontal', 'Temporal', 'Occipital', 'Parietal'],
-  cefaleiaFrequencia: ['Todo o dia', 'Eventual', 'Segue o sexo', 'Fim de semana', 'Manhã', 'Tarde', 'Noite', 'Infrequente', 'Frequente', 'Crônica'],
+  cefaleiaFrequencia: ['Todo o dia', 'Eventual', 'Fim de semana', 'Manhã', 'Tarde', 'Noite', 'Infrequente', 'Frequente', 'Crônica'],
 };
 
 function createEmptyAnamnesis() {

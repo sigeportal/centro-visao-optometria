@@ -64,6 +64,7 @@ uses
   Autorizacao.Service,
   Parceria.Service,
   Procedimento.Service,
+  Correlation.Middleware,
   Response.Utils,
   Logger.Utils;
 
@@ -94,7 +95,9 @@ begin
   Result := SameText(LValue.Value, 'true');
 end;
 
-procedure EnviarErro(Res: THorseResponse; E: Exception; const AOrigem: string);
+procedure EnviarErro(Req: THorseRequest; Res: THorseResponse; E: Exception; const AOrigem: string);
+var
+  LCorrelationId: string;
 begin
   if (E is EParceriaNaoEncontrada) or (E is EProcedimentoNaoEncontrado) then
     Res.Send<TJSONObject>(TResponseUtils.NotFound(E.Message)).Status(THTTPStatus.NotFound)
@@ -103,8 +106,9 @@ begin
       .Status(THTTPStatus.UnprocessableEntity)
   else
   begin
-    TLogger.Error(AOrigem, E);
-    Res.Send<TJSONObject>(TResponseUtils.InternalError(E.Message))
+    LCorrelationId := ObterCorrelationId(Req);
+    TLogger.Error(Format('[%s] %s', [LCorrelationId, AOrigem]), E);
+    Res.Send<TJSONObject>(TResponseUtils.InternalError('Ocorreu um erro interno ao processar a solicitacao', LCorrelationId))
       .Status(THTTPStatus.InternalServerError);
   end;
 end;
@@ -141,7 +145,7 @@ begin
     Res.Send<TJSONObject>(TResponseUtils.Success('Parcerias listadas com sucesso',
       TParceriaService.Listar(QueryParam(Req, 'busca'), QueryParam(Req, 'status'))))
       .Status(THTTPStatus.OK);
-  except on E: Exception do EnviarErro(Res, E, 'CatalogoController.ListarParcerias'); end;
+  except on E: Exception do EnviarErro(Req, Res, E, 'CatalogoController.ListarParcerias'); end;
 end;
 
 class procedure TCatalogoController.ObterParceria(Req: THorseRequest;
@@ -150,7 +154,7 @@ begin
   try
     Res.Send<TJSONObject>(TResponseUtils.Success('Parceria encontrada',
       TParceriaService.ObterPorId(ParamId(Req)))).Status(THTTPStatus.OK);
-  except on E: Exception do EnviarErro(Res, E, 'CatalogoController.ObterParceria'); end;
+  except on E: Exception do EnviarErro(Req, Res, E, 'CatalogoController.ObterParceria'); end;
 end;
 
 class procedure TCatalogoController.CriarParceria(Req: THorseRequest;
@@ -159,7 +163,7 @@ begin
   try
     Res.Send<TJSONObject>(TResponseUtils.Success('Parceria criada com sucesso',
       TParceriaService.Criar(Req.Body<TJSONObject>))).Status(THTTPStatus.Created);
-  except on E: Exception do EnviarErro(Res, E, 'CatalogoController.CriarParceria'); end;
+  except on E: Exception do EnviarErro(Req, Res, E, 'CatalogoController.CriarParceria'); end;
 end;
 
 class procedure TCatalogoController.AtualizarParceria(Req: THorseRequest;
@@ -169,7 +173,7 @@ begin
     Res.Send<TJSONObject>(TResponseUtils.Success('Parceria atualizada com sucesso',
       TParceriaService.Atualizar(ParamId(Req), Req.Body<TJSONObject>)))
       .Status(THTTPStatus.OK);
-  except on E: Exception do EnviarErro(Res, E, 'CatalogoController.AtualizarParceria'); end;
+  except on E: Exception do EnviarErro(Req, Res, E, 'CatalogoController.AtualizarParceria'); end;
 end;
 
 class procedure TCatalogoController.AtualizarParceriaAtiva(Req: THorseRequest;
@@ -179,7 +183,7 @@ begin
     Res.Send<TJSONObject>(TResponseUtils.Success('Status da parceria atualizado',
       TParceriaService.DefinirAtivo(ParamId(Req), AtivoDoBody(Req))))
       .Status(THTTPStatus.OK);
-  except on E: Exception do EnviarErro(Res, E, 'CatalogoController.AtualizarParceriaAtiva'); end;
+  except on E: Exception do EnviarErro(Req, Res, E, 'CatalogoController.AtualizarParceriaAtiva'); end;
 end;
 
 class procedure TCatalogoController.ListarProcedimentos(Req: THorseRequest;
@@ -189,7 +193,7 @@ begin
     Res.Send<TJSONObject>(TResponseUtils.Success('Procedimentos listados com sucesso',
       TProcedimentoService.Listar(QueryParam(Req, 'busca'), QueryParam(Req, 'status'))))
       .Status(THTTPStatus.OK);
-  except on E: Exception do EnviarErro(Res, E, 'CatalogoController.ListarProcedimentos'); end;
+  except on E: Exception do EnviarErro(Req, Res, E, 'CatalogoController.ListarProcedimentos'); end;
 end;
 
 class procedure TCatalogoController.ObterProcedimento(Req: THorseRequest;
@@ -198,7 +202,7 @@ begin
   try
     Res.Send<TJSONObject>(TResponseUtils.Success('Procedimento encontrado',
       TProcedimentoService.ObterPorId(ParamId(Req)))).Status(THTTPStatus.OK);
-  except on E: Exception do EnviarErro(Res, E, 'CatalogoController.ObterProcedimento'); end;
+  except on E: Exception do EnviarErro(Req, Res, E, 'CatalogoController.ObterProcedimento'); end;
 end;
 
 class procedure TCatalogoController.CriarProcedimento(Req: THorseRequest;
@@ -207,7 +211,7 @@ begin
   try
     Res.Send<TJSONObject>(TResponseUtils.Success('Procedimento criado com sucesso',
       TProcedimentoService.Criar(Req.Body<TJSONObject>))).Status(THTTPStatus.Created);
-  except on E: Exception do EnviarErro(Res, E, 'CatalogoController.CriarProcedimento'); end;
+  except on E: Exception do EnviarErro(Req, Res, E, 'CatalogoController.CriarProcedimento'); end;
 end;
 
 class procedure TCatalogoController.AtualizarProcedimento(Req: THorseRequest;
@@ -217,7 +221,7 @@ begin
     Res.Send<TJSONObject>(TResponseUtils.Success('Procedimento atualizado com sucesso',
       TProcedimentoService.Atualizar(ParamId(Req), Req.Body<TJSONObject>)))
       .Status(THTTPStatus.OK);
-  except on E: Exception do EnviarErro(Res, E, 'CatalogoController.AtualizarProcedimento'); end;
+  except on E: Exception do EnviarErro(Req, Res, E, 'CatalogoController.AtualizarProcedimento'); end;
 end;
 
 class procedure TCatalogoController.AtualizarProcedimentoAtivo(Req: THorseRequest;
@@ -227,7 +231,7 @@ begin
     Res.Send<TJSONObject>(TResponseUtils.Success('Status do procedimento atualizado',
       TProcedimentoService.DefinirAtivo(ParamId(Req), AtivoDoBody(Req))))
       .Status(THTTPStatus.OK);
-  except on E: Exception do EnviarErro(Res, E, 'CatalogoController.AtualizarProcedimentoAtivo'); end;
+  except on E: Exception do EnviarErro(Req, Res, E, 'CatalogoController.AtualizarProcedimentoAtivo'); end;
 end;
 
 initialization

@@ -50,6 +50,7 @@ uses
   Autorizacao.Middleware,
   Autorizacao.Service,
   Funcionario.Service,
+  Correlation.Middleware,
   Response.Utils,
   Logger.Utils;
 
@@ -64,7 +65,9 @@ begin
   Result := StrToIntDef(Req.Params.Items['id'], 0);
 end;
 
-procedure EnviarErro(Res: THorseResponse; E: Exception; const AOrigem: string);
+procedure EnviarErro(Req: THorseRequest; Res: THorseResponse; E: Exception; const AOrigem: string);
+var
+  LCorrelationId: string;
 begin
   if E is EFuncionarioNaoEncontrado then
     Res.Send<TJSONObject>(TResponseUtils.NotFound(E.Message)).Status(THTTPStatus.NotFound)
@@ -73,8 +76,9 @@ begin
       .Status(THTTPStatus.UnprocessableEntity)
   else
   begin
-    TLogger.Error(AOrigem, E);
-    Res.Send<TJSONObject>(TResponseUtils.InternalError(E.Message))
+    LCorrelationId := ObterCorrelationId(Req);
+    TLogger.Error(Format('[%s] %s', [LCorrelationId, AOrigem]), E);
+    Res.Send<TJSONObject>(TResponseUtils.InternalError('Ocorreu um erro interno ao processar a solicitacao', LCorrelationId))
       .Status(THTTPStatus.InternalServerError);
   end;
 end;
@@ -103,7 +107,7 @@ begin
         QueryParam(Req, 'status')))).Status(THTTPStatus.OK);
   except
     on E: Exception do
-      EnviarErro(Res, E, 'FuncionarioController.Listar');
+      EnviarErro(Req, Res, E, 'FuncionarioController.Listar');
   end;
 end;
 
@@ -116,7 +120,7 @@ begin
       TFuncionarioService.ObterPorId(ParamId(Req)))).Status(THTTPStatus.OK);
   except
     on E: Exception do
-      EnviarErro(Res, E, 'FuncionarioController.ObterPorId');
+      EnviarErro(Req, Res, E, 'FuncionarioController.ObterPorId');
   end;
 end;
 
@@ -132,7 +136,7 @@ begin
       TFuncionarioService.Criar(LBody))).Status(THTTPStatus.Created);
   except
     on E: Exception do
-      EnviarErro(Res, E, 'FuncionarioController.Criar');
+      EnviarErro(Req, Res, E, 'FuncionarioController.Criar');
   end;
 end;
 
@@ -148,7 +152,7 @@ begin
       TFuncionarioService.Atualizar(ParamId(Req), LBody))).Status(THTTPStatus.OK);
   except
     on E: Exception do
-      EnviarErro(Res, E, 'FuncionarioController.Atualizar');
+      EnviarErro(Req, Res, E, 'FuncionarioController.Atualizar');
   end;
 end;
 
@@ -175,7 +179,7 @@ begin
       .Status(THTTPStatus.OK);
   except
     on E: Exception do
-      EnviarErro(Res, E, 'FuncionarioController.AtualizarAtivo');
+      EnviarErro(Req, Res, E, 'FuncionarioController.AtualizarAtivo');
   end;
 end;
 

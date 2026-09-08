@@ -77,6 +77,8 @@ uses
   Horse.GBSwagger,
   Autorizacao.Service,
   Autorizacao.Middleware,
+  Auditoria.Service,
+  Correlation.Middleware,
   Response.Utils,
   Logger.Utils;
 
@@ -103,6 +105,7 @@ class procedure TAutorizacaoController.ListarFuncionarios(Req: THorseRequest;
   Res: THorseResponse; Next: TProc);
 var
   LUsuarioId: Integer;
+  LCorrelationId: string;
 begin
   try
     LUsuarioId := StrToIntDef(Req.Query.Items['usuario_id'], 0);
@@ -113,8 +116,9 @@ begin
   except
     on E: Exception do
     begin
-      TLogger.Error('AutorizacaoController.ListarFuncionarios', E);
-      Res.Send<TJSONObject>(TResponseUtils.InternalError(E.Message))
+      LCorrelationId := ObterCorrelationId(Req);
+      TLogger.Error(Format('[%s] %s', [LCorrelationId, 'AutorizacaoController.ListarFuncionarios']), E);
+      Res.Send<TJSONObject>(TResponseUtils.InternalError('Ocorreu um erro interno ao processar a solicitacao', LCorrelationId))
         .Status(THTTPStatus.InternalServerError);
     end;
   end;
@@ -124,28 +128,35 @@ class procedure TAutorizacaoController.CriarUsuario(Req: THorseRequest;
   Res: THorseResponse; Next: TProc);
 var
   LBody: TJSONObject;
+  LResObj: TJSONObject;
+  LNovoId: Integer;
+  LCorrelationId: string;
 begin
   try
     LBody := Req.Body<TJSONObject>;
     if not Assigned(LBody) then
       raise EAutorizacaoValidacao.Create('Payload invalido');
 
-    Res.Send<TJSONObject>(TResponseUtils.Success(
-      'Usuario criado com sucesso',
-      TAutorizacaoService.CriarUsuario(
+    LResObj := TAutorizacaoService.CriarUsuario(
         LBody.GetValue<string>('username', ''),
         LBody.GetValue<Integer>('funcionario_id', 0),
         LBody.GetValue<string>('perfil', ''),
         LBody.GetValue<string>('senha', ''),
-        LBody.GetValue<string>('confirmar_senha', ''))))
+        LBody.GetValue<string>('confirmar_senha', ''));
+    LNovoId := LResObj.GetValue<Integer>('id', 0);
+    TAuditoriaService.Registrar(Req, 'CREATE', 'USUARIOS', LNovoId, 'Cadastro de usuario');
+
+    Res.Send<TJSONObject>(TResponseUtils.Success(
+      'Usuario criado com sucesso', LResObj))
       .Status(THTTPStatus.Created);
   except
     on E: EAutorizacaoValidacao do
       Res.Send<TJSONObject>(TResponseUtils.Error(E.Message, 422)).Status(THTTPStatus.UnprocessableEntity);
     on E: Exception do
     begin
-      TLogger.Error('AutorizacaoController.CriarUsuario', E);
-      Res.Send<TJSONObject>(TResponseUtils.InternalError(E.Message))
+      LCorrelationId := ObterCorrelationId(Req);
+      TLogger.Error(Format('[%s] %s', [LCorrelationId, 'AutorizacaoController.CriarUsuario']), E);
+      Res.Send<TJSONObject>(TResponseUtils.InternalError('Ocorreu um erro interno ao processar a solicitacao', LCorrelationId))
         .Status(THTTPStatus.InternalServerError);
     end;
   end;
@@ -156,6 +167,7 @@ class procedure TAutorizacaoController.AtualizarUsuario(Req: THorseRequest;
 var
   LUsuarioId: Integer;
   LBody: TJSONObject;
+  LCorrelationId: string;
 begin
   try
     LUsuarioId := StrToIntDef(Req.Params.Items['id'], 0);
@@ -178,8 +190,9 @@ begin
       Res.Send<TJSONObject>(TResponseUtils.Error(E.Message, 422)).Status(THTTPStatus.UnprocessableEntity);
     on E: Exception do
     begin
-      TLogger.Error('AutorizacaoController.AtualizarUsuario', E);
-      Res.Send<TJSONObject>(TResponseUtils.InternalError(E.Message))
+      LCorrelationId := ObterCorrelationId(Req);
+      TLogger.Error(Format('[%s] %s', [LCorrelationId, 'AutorizacaoController.AtualizarUsuario']), E);
+      Res.Send<TJSONObject>(TResponseUtils.InternalError('Ocorreu um erro interno ao processar a solicitacao', LCorrelationId))
         .Status(THTTPStatus.InternalServerError);
     end;
   end;
@@ -189,6 +202,7 @@ class procedure TAutorizacaoController.MinhaSessao(Req: THorseRequest;
   Res: THorseResponse; Next: TProc);
 var
   LUsuarioId: Integer;
+  LCorrelationId: string;
 begin
   try
     LUsuarioId := UsuarioIdAutenticado(Req);
@@ -212,8 +226,9 @@ begin
       Res.Send<TJSONObject>(TResponseUtils.Error(E.Message, 422)).Status(THTTPStatus.UnprocessableEntity);
     on E: Exception do
     begin
-      TLogger.Error('AutorizacaoController.MinhaSessao', E);
-      Res.Send<TJSONObject>(TResponseUtils.InternalError(E.Message))
+      LCorrelationId := ObterCorrelationId(Req);
+      TLogger.Error(Format('[%s] %s', [LCorrelationId, 'AutorizacaoController.MinhaSessao']), E);
+      Res.Send<TJSONObject>(TResponseUtils.InternalError('Ocorreu um erro interno ao processar a solicitacao', LCorrelationId))
         .Status(THTTPStatus.InternalServerError);
     end;
   end;
@@ -224,6 +239,7 @@ class procedure TAutorizacaoController.RedefinirSenha(Req: THorseRequest;
 var
   LUsuarioId: Integer;
   LBody: TJSONObject;
+  LCorrelationId: string;
 begin
   try
     LUsuarioId := StrToIntDef(Req.Params.Items['id'], 0);
@@ -235,6 +251,7 @@ begin
       LUsuarioId,
       LBody.GetValue<string>('senha', ''),
       LBody.GetValue<string>('confirmar_senha', ''));
+    TAuditoriaService.Registrar(Req, 'UPDATE', 'USUARIOS', LUsuarioId, 'Redefinicao de senha');
     Res.Send<TJSONObject>(TResponseUtils.Success('Senha redefinida com sucesso'))
       .Status(THTTPStatus.OK);
   except
@@ -244,8 +261,9 @@ begin
       Res.Send<TJSONObject>(TResponseUtils.Error(E.Message, 422)).Status(THTTPStatus.UnprocessableEntity);
     on E: Exception do
     begin
-      TLogger.Error('AutorizacaoController.RedefinirSenha', E);
-      Res.Send<TJSONObject>(TResponseUtils.InternalError(E.Message))
+      LCorrelationId := ObterCorrelationId(Req);
+      TLogger.Error(Format('[%s] %s', [LCorrelationId, 'AutorizacaoController.RedefinirSenha']), E);
+      Res.Send<TJSONObject>(TResponseUtils.InternalError('Ocorreu um erro interno ao processar a solicitacao', LCorrelationId))
         .Status(THTTPStatus.InternalServerError);
     end;
   end;
@@ -259,6 +277,7 @@ var
   LBody: TJSONObject;
   LAtivoValue: TJSONValue;
   LAtivo: Boolean;
+  LCorrelationId: string;
 begin
   try
     LUsuarioId := StrToIntDef(Req.Params.Items['id'], 0);
@@ -284,8 +303,9 @@ begin
       Res.Send<TJSONObject>(TResponseUtils.Error(E.Message, 422)).Status(THTTPStatus.UnprocessableEntity);
     on E: Exception do
     begin
-      TLogger.Error('AutorizacaoController.AtualizarAtivo', E);
-      Res.Send<TJSONObject>(TResponseUtils.InternalError(E.Message))
+      LCorrelationId := ObterCorrelationId(Req);
+      TLogger.Error(Format('[%s] %s', [LCorrelationId, 'AutorizacaoController.AtualizarAtivo']), E);
+      Res.Send<TJSONObject>(TResponseUtils.InternalError('Ocorreu um erro interno ao processar a solicitacao', LCorrelationId))
         .Status(THTTPStatus.InternalServerError);
     end;
   end;
@@ -293,6 +313,8 @@ end;
 
 class procedure TAutorizacaoController.ListarUsuarios(Req: THorseRequest;
   Res: THorseResponse; Next: TProc);
+var
+  LCorrelationId: string;
 begin
   try
     Res.Send<TJSONObject>(TResponseUtils.Success(
@@ -302,8 +324,9 @@ begin
   except
     on E: Exception do
     begin
-      TLogger.Error('AutorizacaoController.ListarUsuarios', E);
-      Res.Send<TJSONObject>(TResponseUtils.InternalError(E.Message))
+      LCorrelationId := ObterCorrelationId(Req);
+      TLogger.Error(Format('[%s] %s', [LCorrelationId, 'AutorizacaoController.ListarUsuarios']), E);
+      Res.Send<TJSONObject>(TResponseUtils.InternalError('Ocorreu um erro interno ao processar a solicitacao', LCorrelationId))
         .Status(THTTPStatus.InternalServerError);
     end;
   end;
@@ -315,6 +338,7 @@ var
   LUsuarioId: Integer;
   LBody: TJSONObject;
   LPerfil: string;
+  LCorrelationId: string;
 begin
   try
     LUsuarioId := StrToIntDef(Req.Params.Items['id'], 0);
@@ -334,8 +358,9 @@ begin
       Res.Send<TJSONObject>(TResponseUtils.Error(E.Message, 422)).Status(THTTPStatus.UnprocessableEntity);
     on E: Exception do
     begin
-      TLogger.Error('AutorizacaoController.AtualizarPerfil', E);
-      Res.Send<TJSONObject>(TResponseUtils.InternalError(E.Message))
+      LCorrelationId := ObterCorrelationId(Req);
+      TLogger.Error(Format('[%s] %s', [LCorrelationId, 'AutorizacaoController.AtualizarPerfil']), E);
+      Res.Send<TJSONObject>(TResponseUtils.InternalError('Ocorreu um erro interno ao processar a solicitacao', LCorrelationId))
         .Status(THTTPStatus.InternalServerError);
     end;
   end;

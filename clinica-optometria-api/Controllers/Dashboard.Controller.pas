@@ -26,6 +26,7 @@ uses
   Autorizacao.Middleware,
   Autorizacao.Service,
   Dashboard.Service,
+  Correlation.Middleware,
   Response.Utils,
   Logger.Utils;
 
@@ -47,6 +48,7 @@ end;
 class procedure TDashboardController.Resumo(Req: THorseRequest; Res: THorseResponse; Next: TProc);
 var
   Service: TDashboardService;
+  LCorrelationId: string;
 begin
   Service := TDashboardService.Create;
   try
@@ -55,8 +57,9 @@ begin
   except
     on E: Exception do
     begin
-      TLogger.Error('DashboardController.Resumo', E);
-      Res.Send<TJSONObject>(TResponseUtils.InternalError(E.Message))
+      LCorrelationId := ObterCorrelationId(Req);
+      TLogger.Error(Format('[%s] %s', [LCorrelationId, 'DashboardController.Resumo']), E);
+      Res.Send<TJSONObject>(TResponseUtils.InternalError('Ocorreu um erro interno ao processar a solicitacao', LCorrelationId))
         .Status(THTTPStatus.InternalServerError);
     end;
   end;
@@ -66,6 +69,7 @@ end;
 class procedure TDashboardController.ProximasConsultas(Req: THorseRequest; Res: THorseResponse; Next: TProc);
 var
   Service: TDashboardService;
+  LCorrelationId: string;
 begin
   Service := TDashboardService.Create;
   try
@@ -74,8 +78,9 @@ begin
   except
     on E: Exception do
     begin
-      TLogger.Error('DashboardController.ProximasConsultas', E);
-      Res.Send<TJSONObject>(TResponseUtils.InternalError(E.Message))
+      LCorrelationId := ObterCorrelationId(Req);
+      TLogger.Error(Format('[%s] %s', [LCorrelationId, 'DashboardController.ProximasConsultas']), E);
+      Res.Send<TJSONObject>(TResponseUtils.InternalError('Ocorreu um erro interno ao processar a solicitacao', LCorrelationId))
         .Status(THTTPStatus.InternalServerError);
     end;
   end;
@@ -85,6 +90,7 @@ end;
 class procedure TDashboardController.Aniversariantes(Req: THorseRequest; Res: THorseResponse; Next: TProc);
 var
   Service: TDashboardService;
+  LCorrelationId: string;
 begin
   Service := TDashboardService.Create;
   try
@@ -93,8 +99,9 @@ begin
   except
     on E: Exception do
     begin
-      TLogger.Error('DashboardController.Aniversariantes', E);
-      Res.Send<TJSONObject>(TResponseUtils.InternalError(E.Message))
+      LCorrelationId := ObterCorrelationId(Req);
+      TLogger.Error(Format('[%s] %s', [LCorrelationId, 'DashboardController.Aniversariantes']), E);
+      Res.Send<TJSONObject>(TResponseUtils.InternalError('Ocorreu um erro interno ao processar a solicitacao', LCorrelationId))
         .Status(THTTPStatus.InternalServerError);
     end;
   end;
@@ -104,6 +111,7 @@ end;
 class procedure TDashboardController.ConsultasVencidas(Req: THorseRequest; Res: THorseResponse; Next: TProc);
 var
   Service: TDashboardService;
+  LCorrelationId: string;
 begin
   Service := TDashboardService.Create;
   try
@@ -112,8 +120,9 @@ begin
   except
     on E: Exception do
     begin
-      TLogger.Error('DashboardController.ConsultasVencidas', E);
-      Res.Send<TJSONObject>(TResponseUtils.InternalError(E.Message))
+      LCorrelationId := ObterCorrelationId(Req);
+      TLogger.Error(Format('[%s] %s', [LCorrelationId, 'DashboardController.ConsultasVencidas']), E);
+      Res.Send<TJSONObject>(TResponseUtils.InternalError('Ocorreu um erro interno ao processar a solicitacao', LCorrelationId))
         .Status(THTTPStatus.InternalServerError);
     end;
   end;
@@ -123,6 +132,7 @@ end;
 class procedure TDashboardController.Retornos(Req: THorseRequest; Res: THorseResponse; Next: TProc);
 var
   Service: TDashboardService;
+  LCorrelationId: string;
 begin
   Service := TDashboardService.Create;
   try
@@ -131,8 +141,9 @@ begin
   except
     on E: Exception do
     begin
-      TLogger.Error('DashboardController.Retornos', E);
-      Res.Send<TJSONObject>(TResponseUtils.InternalError(E.Message))
+      LCorrelationId := ObterCorrelationId(Req);
+      TLogger.Error(Format('[%s] %s', [LCorrelationId, 'DashboardController.Retornos']), E);
+      Res.Send<TJSONObject>(TResponseUtils.InternalError('Ocorreu um erro interno ao processar a solicitacao', LCorrelationId))
         .Status(THTTPStatus.InternalServerError);
     end;
   end;

@@ -60,6 +60,7 @@ uses
   System.Hash,
   UnitConnection.Model.Interfaces,
   UnitDatabase,
+  Security.Password,
   UnitUsuarioPerfil.Model;
 
 procedure AdicionarPermissao(ALista: TJSONArray; const APermissao: string);
@@ -94,12 +95,6 @@ begin
     raise EAutorizacaoValidacao.Create('Confirmacao de senha nao confere');
 end;
 
-function HashSenha(const ASenha: string): string;
-begin
-  Result := THashSHA2.GetHashString(ASenha,
-    THashSHA2.TSHA2Version.SHA256).ToLower;
-end;
-
 class procedure TAutorizacaoService.Inicializar;
 var
   LPerfil: TModelUsuarioPerfil;
@@ -129,6 +124,21 @@ begin
   LQuery.Clear;
   LQuery.Add('UPDATE USUARIOS SET USU_ATIVO = 1 WHERE USU_ATIVO IS NULL');
   LQuery.ExecSQL;
+
+  // Garante que o campo USU_SENHA tenha capacidade para hashes seguros (VARCHAR(255))
+  try
+    LQuery.Clear;
+    LQuery.Add('ALTER TABLE USUARIOS ALTER USU_SENHA TYPE VARCHAR(255)');
+    LQuery.ExecSQL;
+  except
+    try
+      LQuery.Clear;
+      LQuery.Add('ALTER TABLE USUARIOS ALTER COLUMN USU_SENHA TYPE VARCHAR(255)');
+      LQuery.ExecSQL;
+    except
+      // Se ja estiver atualizado ou ocorrer erro de compatibilidade de dialeto, prossegue
+    end;
+  end;
 
   LQuery.Clear;
   LQuery.Add('SELECT FIRST 1 USU_CODIGO FROM USUARIOS WHERE UPPER(USU_LOGIN) = ''ADMIN''');
@@ -405,7 +415,7 @@ begin
         LQuery.ParamByName('ID').AsInteger := LUsuarioId;
         LQuery.ParamByName('LOGIN').AsString := LUsername;
         LQuery.ParamByName('FUNCIONARIO_ID').AsInteger := AFuncionarioId;
-        LQuery.ParamByName('SENHA').AsString := HashSenha(ASenha);
+        LQuery.ParamByName('SENHA').AsString := TSecurityPassword.HashSenha(ASenha);
         LQuery.ExecSQL;
 
         LQuery.SQL.Text := 'INSERT INTO USUARIO_PERFIL ' +
@@ -551,7 +561,7 @@ begin
 
   LQuery.Clear;
   LQuery.Add('UPDATE USUARIOS SET USU_SENHA = :SENHA WHERE USU_CODIGO = :ID');
-  LQuery.AddParam('SENHA', HashSenha(ASenha));
+  LQuery.AddParam('SENHA', TSecurityPassword.HashSenha(ASenha));
   LQuery.AddParam('ID', AUsuarioId);
   LQuery.ExecSQL;
 end;

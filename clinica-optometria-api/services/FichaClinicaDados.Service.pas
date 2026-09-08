@@ -47,7 +47,7 @@ var
 begin
   LCampos := '';
   if ASecao = 'prescricao_ultimo_exame' then
-    LCampos := 'od,oe,adicao,dnp,altura,tipo_lente,filtro,cor,observacoes'
+    LCampos := 'od,oe,adicao,dnp,altura,tipo_lente,filtro,cor,observacoes,perto,modo'
   else if ASecao = 'acuidade_visual' then
     LCampos := 'optotipo,sem_correcao,com_correcao,visao_habitual,observacoes'
   else if ASecao = 'biomicroscopia' then
@@ -74,11 +74,11 @@ begin
   else if ASecao = 'dx' then
     LCampos := 'refrativo,motor,patologico,conduta,controle,encaminhamento,observacoes'
   else if ASecao = 'flexibilidade_acomodacao' then
-    LCampos := 'tecnica,od,oe,observacoes'
+    LCampos := 'tecnica,od,oe,adicao,observacoes'
   else if ASecao = 'adicao' then
     LCampos := 'od,oe,observacoes'
   else if ASecao = 'ppc' then
-    LCampos := 'objeto_real,luz_pontual,filtro_vermelho,observacoes'
+    LCampos := 'objeto_real,luz_pontual,filtro_vermelho,olho_dominante,observacoes'
   else if ASecao = 'reflexos_pupilares' then
     LCampos := 'od,oe,observacoes'
   else if ASecao = 'reservas_fusionais' then

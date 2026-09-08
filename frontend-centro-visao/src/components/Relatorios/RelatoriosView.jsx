@@ -14,7 +14,9 @@ import {
   MessageSquare,
   ArrowUpRight,
   Loader2,
-  MoreHorizontal
+  MoreHorizontal,
+  PhoneCall,
+  Copy
 } from 'lucide-react';
 import { 
   formatCPF, 
@@ -23,6 +25,7 @@ import {
   formatPhone, 
   formatDate, 
   buildReturnWhatsAppMessage, 
+  generateNewConsultationMessage,
   buildWhatsAppLink,
   calculateAge
 } from '../../utils/formatters';
@@ -30,6 +33,7 @@ import { listarAgenda, listarProfissionais } from '../../api/agenda';
 import { listarRetornosRelatorio, listarAniversariantesRelatorio } from '../../api/relatorios';
 import { obterDadosClinica } from '../../api/configuracoes';
 import { useAuth } from '../../context/AuthContext';
+import ToastNotification from '../Common/ToastNotification';
 
 const EMPTY_CLINIC = { 
   name: '', 
@@ -84,6 +88,17 @@ function normalizeReturnStatus(value) {
   return { status: 'Data prevista', statusKey: 'prevista', statusColor: 'badge-confirmed' };
 }
 
+function normalizeNewConsultationStatus(value) {
+  const status = String(value || '').toLowerCase();
+  if (status === 'vencido') {
+    return { status: 'Prazo expirado', statusKey: 'vencido', statusColor: 'badge-cancelled' };
+  }
+  if (status === 'proximo') {
+    return { status: 'Janela de contato (30 dias)', statusKey: 'proximo', statusColor: 'badge-pending' };
+  }
+  return { status: 'Em dia / Futura', statusKey: 'programado', statusColor: 'badge-confirmed' };
+}
+
 export default function RelatoriosView({ setActiveModule }) {
   const { user } = useAuth();
   const [activeReport, setActiveReport] = useState('retornos');
@@ -91,6 +106,7 @@ export default function RelatoriosView({ setActiveModule }) {
   const [selectedProfessional, setSelectedProfessional] = useState('all');
   const [selectedStatus, setSelectedStatus] = useState('all');
   const [returns, setReturns] = useState([]);
+  const [newConsultations, setNewConsultations] = useState([]);
   const [appointments, setAppointments] = useState([]);
   const [professionals, setProfessionals] = useState([]);
   const [birthdays, setBirthdays] = useState([]);
@@ -98,6 +114,7 @@ export default function RelatoriosView({ setActiveModule }) {
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState('');
   const [actionMenu, setActionMenu] = useState(null);
+  const [copiedMessageId, setCopiedMessageId] = useState(null);
 
   useEffect(() => {
     if (!actionMenu) return;
@@ -138,29 +155,78 @@ export default function RelatoriosView({ setActiveModule }) {
         const [returnsResult, appointmentsResult, professionalsResult, birthdaysResult, clinicResult] = results;
 
         if (returnsResult.status === 'fulfilled') {
-          setReturns(returnsResult.value.map((item) => ({
-          id: item.id,
-          patientId: item.paciente_id,
-          patientName: item.paciente_nome || item.paciente || 'Paciente não informado',
-          cpf: item.cpf || '',
-          phone: item.telefone || '',
-          doctor: item.profissional || 'Profissional não informado',
-          consultationDate: item.consulta_data || '',
-          returnDate: item.data_retorno || '',
-          returnType: item.tipo || 'Acompanhamento',
-          reason: item.motivo || item.observacao || 'Sem motivo informado',
-          ...normalizeReturnStatus(item.status),
-          })));
+          const rawItems = Array.isArray(returnsResult.value) ? returnsResult.value : [];
+          const retornosList = [];
+          const novasList = [];
+          const toBool = (val) => val === 1 || val === '1' || val === true || val === 'true';
+
+          rawItems.forEach((item) => {
+            const temRetorno = (toBool(item.tem_retorno) || ((item.tem_retorno == null || item.tem_retorno === '') && Boolean(item.data_retorno))) && Boolean(item.data_retorno);
+            const temNova = (toBool(item.tem_nova_consulta) || Boolean(item.nova_consulta_data)) && Boolean(item.nova_consulta_data);
+
+            if (temRetorno && item.data_retorno) {
+              retornosList.push({
+                id: item.id,
+                patientId: item.paciente_id,
+                patientName: item.paciente_nome || item.paciente || 'Paciente não informado',
+                cpf: item.cpf || '',
+                phone: item.telefone || '',
+                doctor: item.profissional || 'Profissional não informado',
+                consultationDate: item.consulta_data || '',
+                returnDate: item.data_retorno || '',
+                returnType: item.tipo || 'Acompanhamento',
+                reason: item.motivo || item.observacao || 'Sem motivo informado',
+                ...normalizeReturnStatus(item.status),
+              });
+            }
+
+            if (temNova && item.nova_consulta_data) {
+              novasList.push({
+                id: item.id,
+                patientId: item.paciente_id,
+                patientName: item.paciente_nome || item.paciente || 'Paciente não informado',
+                cpf: item.cpf || '',
+                phone: item.telefone || '',
+                doctor: item.profissional || 'Profissional não informado',
+                consultationDate: item.consulta_data || '',
+                estimatedDate: item.nova_consulta_data || '',
+                reason: item.nova_consulta_motivo || item.nova_consulta_observacao || 'Revisão periódica / Validade dos óculos',
+                observation: item.nova_consulta_observacao || '',
+                ...normalizeNewConsultationStatus(item.nova_consulta_status || item.status),
+              });
+            }
+
+            if (!temRetorno && !temNova && item.data_retorno) {
+              retornosList.push({
+                id: item.id,
+                patientId: item.paciente_id,
+                patientName: item.paciente_nome || item.paciente || 'Paciente não informado',
+                cpf: item.cpf || '',
+                phone: item.telefone || '',
+                doctor: item.profissional || 'Profissional não informado',
+                consultationDate: item.consulta_data || '',
+                returnDate: item.data_retorno || '',
+                returnType: item.tipo || 'Acompanhamento',
+                reason: item.motivo || item.observacao || 'Sem motivo informado',
+                ...normalizeReturnStatus(item.status),
+              });
+            }
+          });
+
+          setReturns(retornosList);
+          setNewConsultations(novasList);
         }
 
         if (appointmentsResult.status === 'fulfilled') {
           setAppointments(appointmentsResult.value.map((item) => ({
-          id: item.id,
-          time: formatTime(item.inicio),
-          patient: item.paciente || 'Paciente não informado',
-          doctor: item.profissional || 'Profissional não informado',
-          procedure: item.procedimento || 'Consulta',
-          status: normalizeAppointmentStatus(item.status),
+            id: item.id,
+            rawDate: item.inicio,
+            date: formatReportDate(item.inicio),
+            time: formatTime(item.inicio),
+            patient: item.paciente || 'Paciente não informado',
+            doctor: item.profissional || 'Profissional não informado',
+            procedure: item.procedimento || 'Consulta',
+            status: normalizeAppointmentStatus(item.status),
           })));
         }
 
@@ -175,11 +241,11 @@ export default function RelatoriosView({ setActiveModule }) {
 
         if (birthdaysResult.status === 'fulfilled') {
           setBirthdays(birthdaysResult.value.map((item) => ({
-          id: item.id,
-          name: item.nome || 'Paciente não informado',
-          age: calculateAge(item.data_nascimento),
-          date: formatBirthday(item.data_nascimento),
-          phone: item.celular || '',
+            id: item.id,
+            name: item.nome || 'Paciente não informado',
+            age: calculateAge(item.data_nascimento),
+            date: formatBirthday(item.data_nascimento),
+            phone: item.celular || '',
           })));
         }
 
@@ -221,11 +287,19 @@ export default function RelatoriosView({ setActiveModule }) {
   const reportsList = [
     { 
       id: 'retornos', 
-      title: 'Retornos Indicados', 
-      description: 'Datas previstas para comunicação e acompanhamento',
+      title: 'Retornos Gratuitos', 
+      description: 'Acompanhamento clínico imediato (isento R$ 0,00)',
       icon: CalendarClock, 
       count: returns.length,
-      badgeColor: 'bg-amber-100 text-amber-900 border-amber-300'
+      badgeColor: 'bg-emerald-100 text-emerald-900 border-emerald-300'
+    },
+    { 
+      id: 'novas_consultas', 
+      title: 'Novas Consultas (CRM)', 
+      description: 'Revisão periódica e validade dos óculos',
+      icon: PhoneCall, 
+      count: newConsultations.length,
+      badgeColor: 'bg-blue-100 text-blue-900 border-blue-300'
     },
     { 
       id: 'agendamentos', 
@@ -257,20 +331,40 @@ export default function RelatoriosView({ setActiveModule }) {
       const matchDoctor = selectedProfessional === 'all' || item.doctor === selectedProfessional;
       
       const matchStatus = selectedStatus === 'all' || 
-        (selectedStatus === 'ultrapassada' && item.statusKey === 'ultrapassada') ||
-        (selectedStatus === 'prevista' && item.statusKey === 'prevista') ||
-        (selectedStatus === 'proximo' && item.statusKey === 'proximo');
+        !['ultrapassada', 'prevista', 'proximo'].includes(selectedStatus) ||
+        item.statusKey === selectedStatus;
 
       return matchSearch && matchDoctor && matchStatus;
     });
   }, [returns, searchTerm, selectedProfessional, selectedStatus]);
+
+  // Filtered New Consultations (CRM)
+  const filteredNewConsultations = useMemo(() => {
+    return newConsultations.filter(item => {
+      const matchSearch = searchTerm === '' || 
+        item.patientName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        item.cpf.includes(searchTerm) ||
+        item.reason.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        item.doctor.toLowerCase().includes(searchTerm.toLowerCase());
+
+      const matchDoctor = selectedProfessional === 'all' || item.doctor === selectedProfessional;
+      
+      const matchStatus = selectedStatus === 'all' || 
+        !['vencido', 'proximo', 'programado'].includes(selectedStatus) ||
+        item.statusKey === selectedStatus;
+
+      return matchSearch && matchDoctor && matchStatus;
+    });
+  }, [newConsultations, searchTerm, selectedProfessional, selectedStatus]);
 
   // Filtered Appointments
   const filteredAppointments = useMemo(() => {
     return appointments.filter(a => {
       const matchSearch = searchTerm === '' ||
         a.patient.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        a.procedure.toLowerCase().includes(searchTerm.toLowerCase());
+        a.procedure.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (a.date && a.date.toLowerCase().includes(searchTerm.toLowerCase())) ||
+        (a.time && a.time.toLowerCase().includes(searchTerm.toLowerCase()));
       const matchDoctor = selectedProfessional === 'all' || a.doctor === selectedProfessional;
       return matchSearch && matchDoctor;
     });
@@ -296,12 +390,17 @@ export default function RelatoriosView({ setActiveModule }) {
     if (activeReport === 'retornos') {
       headers = ['Cód', 'Paciente', 'CPF', 'Telefone', 'Profissional', 'Consulta Origem', 'Data Prevista', 'Tipo', 'Motivo', 'Situação'];
       rows = filteredReturns.map(r => [
-                          r.id, r.patientName, r.cpf, r.phone, r.doctor, formatReportDate(r.consultationDate), formatReportDate(r.returnDate), r.returnType, `"${r.reason.replace(/"/g, '""')}"`, r.status
+        r.id, r.patientName, r.cpf, r.phone, r.doctor, formatReportDate(r.consultationDate), formatReportDate(r.returnDate), r.returnType, `"${r.reason.replace(/"/g, '""')}"`, r.status
+      ]);
+    } else if (activeReport === 'novas_consultas') {
+      headers = ['Cód', 'Paciente', 'CPF', 'Telefone', 'Profissional', 'Consulta Origem', 'Previsão Nova Consulta', 'Indicação / Motivo', 'Situação'];
+      rows = filteredNewConsultations.map(r => [
+        r.id, r.patientName, r.cpf, r.phone, r.doctor, formatReportDate(r.consultationDate), formatReportDate(r.estimatedDate), `"${r.reason.replace(/"/g, '""')}"`, r.status
       ]);
     } else if (activeReport === 'agendamentos') {
-      headers = ['Horário', 'Paciente', 'Profissional', 'Procedimento', 'Status'];
+      headers = ['Data', 'Horário', 'Paciente', 'Profissional', 'Procedimento', 'Status'];
       rows = filteredAppointments.map(a => [
-        a.time, `"${a.patient}"`, a.doctor, `"${a.procedure}"`, a.status
+        a.date, a.time, `"${a.patient}"`, a.doctor, `"${a.procedure}"`, a.status
       ]);
     } else if (activeReport === 'aniversariantes') {
       headers = ['Nome', 'Idade', 'Data Aniversário', 'Telefone'];
@@ -329,12 +428,12 @@ export default function RelatoriosView({ setActiveModule }) {
   const clinicName = clinicInfo.name || 'Centro Visão Optometria';
 
   return (
-    <div className="animate-fade-in text-xs">
+    <div className="animate-fade-in text-xs w-full min-w-0 max-w-full">
       
       {/* ========================================================================= */}
       {/* VISUALIZAÇÃO INTERATIVA EM TELA (oculta durante a impressão)               */}
       {/* ========================================================================= */}
-      <div className="space-y-5 pb-12 print:hidden">
+      <div className="space-y-5 pb-12 print:hidden w-full min-w-0">
         {loading && (
         <div className="clinical-panel px-4 py-3 flex items-center gap-2 text-slate-500">
           <Loader2 className="w-4 h-4 animate-spin text-forest-700" />
@@ -355,7 +454,7 @@ export default function RelatoriosView({ setActiveModule }) {
             Relatórios & Indicadores Operacionais
           </h2>
           <p className="text-[11px] text-slate-400 mt-0.5 max-w-2xl">
-            Acompanhamento de retornos indicados, datas previstas para comunicação e métricas da clínica.
+            Acompanhamento de retornos gratuitos, previsão de novas consultas (CRM) e métricas da clínica.
           </p>
         </div>
 
@@ -382,7 +481,7 @@ export default function RelatoriosView({ setActiveModule }) {
       </div>
 
       {/* Grid selector de Relatórios */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 lg:grid-cols-3 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
         {reportsList.map((r) => {
           const Icon = r.icon;
           const isActive = activeReport === r.id;
@@ -392,6 +491,7 @@ export default function RelatoriosView({ setActiveModule }) {
               onClick={() => {
                 setActiveReport(r.id);
                 setSearchTerm('');
+                setSelectedStatus('all');
               }}
               className={`p-3.5 rounded-2xl border text-left flex flex-col justify-between transition-all duration-150 relative ${
                 isActive 
@@ -436,63 +536,63 @@ export default function RelatoriosView({ setActiveModule }) {
         <div className="space-y-4 animate-fade-in">
           
           {/* Summary Strip for Retornos */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
-            <div className="clinical-panel p-4 flex items-center justify-between">
-              <div>
-                <span className="text-[10.5px] font-bold uppercase tracking-wider text-slate-400 block">
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3.5">
+            <div className="clinical-panel p-4 flex items-center justify-between gap-3 min-w-0">
+              <div className="min-w-0 flex-1">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block truncate" title="Total de Retornos Indicados">
                   Total de Retornos Indicados
                 </span>
                 <span className="text-xl font-bold font-mono text-slate-900 mt-0.5 block">
                   {returns.length}
                 </span>
-                <span className="text-[10.5px] text-slate-400">Registrados em prontuário</span>
+                <span className="text-[10px] text-slate-400 block truncate">Registrados em prontuário</span>
               </div>
-              <div className="w-10 h-10 rounded-xl bg-forest-50 text-forest-800 flex items-center justify-center border border-forest-200/60">
+              <div className="w-10 h-10 rounded-xl bg-forest-50 text-forest-800 flex items-center justify-center border border-forest-200/60 shrink-0">
                 <CalendarClock className="w-5 h-5" />
               </div>
             </div>
 
-            <div className="clinical-panel p-4 flex items-center justify-between">
-              <div>
-                <span className="text-[10.5px] font-bold uppercase tracking-wider text-slate-400 block">
+            <div className="clinical-panel p-4 flex items-center justify-between gap-3 min-w-0">
+              <div className="min-w-0 flex-1">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block truncate" title="Datas Previstas Futuras">
                   Datas Previstas Futuras
                 </span>
                 <span className="text-xl font-bold font-mono text-forest-800 mt-0.5 block">
                   {returns.filter(r => r.statusKey === 'prevista').length}
                 </span>
-                <span className="text-[10.5px] text-forest-700 font-medium">Fora da janela de contato</span>
+                <span className="text-[10px] text-forest-700 font-medium block truncate">Fora da janela de contato</span>
               </div>
-              <div className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-800 flex items-center justify-center border border-emerald-200/60">
+              <div className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-800 flex items-center justify-center border border-emerald-200/60 shrink-0">
                 <CheckCircle2 className="w-5 h-5" />
               </div>
             </div>
 
-            <div className="clinical-panel p-4 flex items-center justify-between">
-              <div>
-                <span className="text-[10.5px] font-bold uppercase tracking-wider text-slate-400 block">
+            <div className="clinical-panel p-4 flex items-center justify-between gap-3 min-w-0">
+              <div className="min-w-0 flex-1">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block truncate" title="Próximos da Data">
                   Próximos da Data
                 </span>
                 <span className="text-xl font-bold font-mono text-amber-700 mt-0.5 block">
                   {returns.filter(r => r.statusKey === 'proximo').length}
                 </span>
-                <span className="text-[10.5px] text-amber-700 font-medium">Janela de contato ativa</span>
+                <span className="text-[10px] text-amber-700 font-medium block truncate">Janela de contato ativa</span>
               </div>
-              <div className="w-10 h-10 rounded-xl bg-amber-50 text-amber-800 flex items-center justify-center border border-amber-200/60">
+              <div className="w-10 h-10 rounded-xl bg-amber-50 text-amber-800 flex items-center justify-center border border-amber-200/60 shrink-0">
                 <Clock className="w-5 h-5" />
               </div>
             </div>
 
-            <div className="clinical-panel p-4 flex items-center justify-between">
-              <div>
-                <span className="text-[10.5px] font-bold uppercase tracking-wider text-rose-600 block">
+            <div className="clinical-panel p-4 flex items-center justify-between gap-3 min-w-0">
+              <div className="min-w-0 flex-1">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-rose-600 block truncate" title="Datas Previstas Ultrapassadas">
                   Datas Previstas Ultrapassadas
                 </span>
                 <span className="text-xl font-bold font-mono text-rose-700 mt-0.5 block">
                   {returns.filter(r => r.statusKey === 'ultrapassada').length}
                 </span>
-                <span className="text-[10.5px] text-rose-600 font-medium">Contato pendente</span>
+                <span className="text-[10px] text-rose-600 font-medium block truncate">Contato pendente</span>
               </div>
-              <div className="w-10 h-10 rounded-xl bg-rose-50 text-rose-800 flex items-center justify-center border border-rose-200/60">
+              <div className="w-10 h-10 rounded-xl bg-rose-50 text-rose-800 flex items-center justify-center border border-rose-200/60 shrink-0">
                 <AlertCircle className="w-5 h-5" />
               </div>
             </div>
@@ -540,7 +640,7 @@ export default function RelatoriosView({ setActiveModule }) {
           <div className="clinical-panel overflow-hidden">
             <div className="clinical-section-header">
               <div className="flex items-center space-x-2">
-                <CalendarClock className="w-4 h-4 text-forest-800" />
+                <CalendarClock className="w-4 h-4 text-forest-800 shrink-0" />
                 <h3 className="font-bold text-slate-900">
                   Lista de Retornos Indicados
                 </h3>
@@ -550,19 +650,19 @@ export default function RelatoriosView({ setActiveModule }) {
               </span>
             </div>
 
-            <div className="overflow-x-auto">
-              <table className="clinical-table">
+            <div className="overflow-x-auto w-full">
+              <table className="clinical-table min-w-[980px] w-full">
                 <thead>
                   <tr>
-                    <th>Cód</th>
-                    <th>Paciente / Contato</th>
-                    <th>Consulta Origem</th>
-                    <th>Data Prevista</th>
-                    <th>Tipo de Retorno</th>
-                    <th>Conduta / Motivo</th>
-                    <th>Profissional</th>
-                    <th className="text-center">Situação</th>
-                    <th className="text-right">Ações</th>
+                    <th className="w-16">Cód</th>
+                    <th className="min-w-[220px]">Paciente / Contato</th>
+                    <th className="w-28 whitespace-nowrap">Consulta Origem</th>
+                    <th className="w-28 whitespace-nowrap">Data Prevista</th>
+                    <th className="w-32 whitespace-nowrap">Tipo de Retorno</th>
+                    <th className="min-w-[200px]">Conduta / Motivo</th>
+                    <th className="w-36 whitespace-nowrap">Profissional</th>
+                    <th className="w-36 text-center whitespace-nowrap">Situação</th>
+                    <th className="w-16 text-right whitespace-nowrap">Ações</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
@@ -576,13 +676,13 @@ export default function RelatoriosView({ setActiveModule }) {
                     filteredReturns.map((item) => (
                       <tr key={item.id} className="hover:bg-forest-50/20 transition-colors">
                         <td className="font-mono font-bold text-slate-400 text-[11px]">
-                          {item.id}
+                          #{item.id}
                         </td>
                         <td>
                           <div className="font-bold text-slate-900">{item.patientName}</div>
-                          <div className="text-[11px] text-slate-400 font-mono flex items-center space-x-1.5 mt-0.5">
+                          <div className="text-[11px] text-slate-400 font-mono flex flex-wrap items-center gap-x-1.5 gap-y-0.5 mt-0.5">
                             <span>CPF: {formatCPF(item.cpf)}</span>
-                            <span>•</span>
+                            <span>-</span>
                             <span className="text-slate-600">{formatPhone(item.phone)}</span>
                           </div>
                         </td>
@@ -593,12 +693,14 @@ export default function RelatoriosView({ setActiveModule }) {
                           {formatReportDate(item.returnDate)}
                         </td>
                         <td>
-                          <span className="font-semibold text-slate-700 bg-slate-100 px-2 py-0.5 rounded-md border border-slate-200 text-[10.5px]">
+                          <span className="font-semibold text-slate-700 bg-slate-100 px-2 py-0.5 rounded-md border border-slate-200 text-[10.5px] whitespace-nowrap">
                             {item.returnType}
                           </span>
                         </td>
-                        <td className="max-w-xs truncate text-slate-600" title={item.reason}>
-                          {item.reason}
+                        <td>
+                          <div className="text-slate-600 line-clamp-2 max-w-sm" title={item.reason}>
+                            {item.reason}
+                          </div>
                         </td>
                         <td className="text-slate-700 font-medium whitespace-nowrap">
                           {item.doctor}
@@ -620,6 +722,7 @@ export default function RelatoriosView({ setActiveModule }) {
                                 setActionMenu({
                                   id: item.id,
                                   item,
+                                  type: 'retorno',
                                   top: rect.bottom + 6,
                                   right: Math.max(12, window.innerWidth - rect.right),
                                 });
@@ -632,6 +735,220 @@ export default function RelatoriosView({ setActiveModule }) {
                             }`}
                             title="Ações do retorno"
                             aria-label="Ações do retorno"
+                          >
+                            <MoreHorizontal className="w-4 h-4" />
+                          </button>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* ABA: NOVAS CONSULTAS & CRM (REVISÃO PERIÓDICA / VALIDADE DOS ÓCULOS)       */}
+      {/* ========================================================================= */}
+      {activeReport === 'novas_consultas' && (
+        <div className="space-y-4 animate-fade-in">
+          
+          {/* Summary Strip for Novas Consultas */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3.5">
+            <div className="clinical-panel p-4 flex items-center justify-between gap-3 min-w-0">
+              <div className="min-w-0 flex-1">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block truncate" title="Total de Previsões (CRM)">
+                  Total de Previsões (CRM)
+                </span>
+                <span className="text-xl font-bold font-mono text-slate-900 mt-0.5 block">
+                  {newConsultations.length}
+                </span>
+                <span className="text-[10px] text-slate-400 block truncate">Revisões estipuladas</span>
+              </div>
+              <div className="w-10 h-10 rounded-xl bg-blue-50 text-blue-800 flex items-center justify-center border border-blue-200/60 shrink-0">
+                <PhoneCall className="w-5 h-5" />
+              </div>
+            </div>
+
+            <div className="clinical-panel p-4 flex items-center justify-between gap-3 min-w-0">
+              <div className="min-w-0 flex-1">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block truncate" title="Em Dia / Futuras">
+                  Em Dia / Futuras
+                </span>
+                <span className="text-xl font-bold font-mono text-forest-800 mt-0.5 block">
+                  {newConsultations.filter(r => r.statusKey === 'programado').length}
+                </span>
+                <span className="text-[10px] text-forest-700 font-medium block truncate">Fora da janela de contato</span>
+              </div>
+              <div className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-800 flex items-center justify-center border border-emerald-200/60 shrink-0">
+                <CheckCircle2 className="w-5 h-5" />
+              </div>
+            </div>
+
+            <div className="clinical-panel p-4 flex items-center justify-between gap-3 min-w-0">
+              <div className="min-w-0 flex-1">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block truncate" title="Janela de Contato (30 dias)">
+                  Janela de Contato (30 dias)
+                </span>
+                <span className="text-xl font-bold font-mono text-amber-700 mt-0.5 block">
+                  {newConsultations.filter(r => r.statusKey === 'proximo').length}
+                </span>
+                <span className="text-[10px] text-amber-700 font-medium block truncate">Momento ideal para captação</span>
+              </div>
+              <div className="w-10 h-10 rounded-xl bg-amber-50 text-amber-800 flex items-center justify-center border border-amber-200/60 shrink-0">
+                <Clock className="w-5 h-5" />
+              </div>
+            </div>
+
+            <div className="clinical-panel p-4 flex items-center justify-between gap-3 min-w-0">
+              <div className="min-w-0 flex-1">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-rose-600 block truncate" title="Prazos Expirados">
+                  Prazos Expirados
+                </span>
+                <span className="text-xl font-bold font-mono text-rose-700 mt-0.5 block">
+                  {newConsultations.filter(r => r.statusKey === 'vencido').length}
+                </span>
+                <span className="text-[10px] text-rose-600 font-medium block truncate">Reconvocação prioritária</span>
+              </div>
+              <div className="w-10 h-10 rounded-xl bg-rose-50 text-rose-800 flex items-center justify-center border border-rose-200/60 shrink-0">
+                <AlertCircle className="w-5 h-5" />
+              </div>
+            </div>
+          </div>
+
+          {/* Filters Bar */}
+          <div className="clinical-panel p-3.5 flex flex-col md:flex-row md:items-center justify-between gap-3">
+            <div className="relative flex-1 max-w-md">
+              <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+              <input
+                type="search"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                placeholder="Buscar por paciente, CPF, motivo ou indicação..."
+                className="clinical-input !pl-10 h-9"
+              />
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <select
+                value={selectedProfessional}
+                onChange={(e) => setSelectedProfessional(e.target.value)}
+                className="clinical-input h-9 w-auto font-medium"
+              >
+                <option value="all">Todos os Profissionais</option>
+                {professionalOptions.map((professional) => (
+                  <option key={professional} value={professional}>{professional}</option>
+                ))}
+              </select>
+
+              <select
+                value={selectedStatus}
+                onChange={(e) => setSelectedStatus(e.target.value)}
+                className="clinical-input h-9 w-auto font-medium"
+              >
+                <option value="all">Todas as Situações</option>
+                <option value="programado">Em Dia / Futuras</option>
+                <option value="proximo">Janela de Contato (30 dias)</option>
+                <option value="vencido">Prazos Expirados</option>
+              </select>
+            </div>
+          </div>
+
+          {/* Novas Consultas Table */}
+          <div className="clinical-panel overflow-hidden">
+            <div className="clinical-section-header">
+              <div className="flex items-center space-x-2">
+                <PhoneCall className="w-4 h-4 text-blue-700 shrink-0" />
+                <h3 className="font-bold text-slate-900">
+                  Pacientes com Previsão de Nova Consulta (CRM)
+                </h3>
+              </div>
+              <span className="text-[11px] font-semibold text-slate-500">
+                Mostrando <strong className="text-forest-900">{filteredNewConsultations.length}</strong> de {newConsultations.length} registros
+              </span>
+            </div>
+
+            <div className="overflow-x-auto w-full">
+              <table className="clinical-table min-w-[980px] w-full">
+                <thead>
+                  <tr>
+                    <th className="w-16">Cód</th>
+                    <th className="min-w-[220px]">Paciente / Contato</th>
+                    <th className="w-28 whitespace-nowrap">Última Consulta</th>
+                    <th className="w-32 whitespace-nowrap">Previsão Nova Consulta</th>
+                    <th className="min-w-[200px]">Indicação / Motivo</th>
+                    <th className="w-36 whitespace-nowrap">Profissional</th>
+                    <th className="w-36 text-center whitespace-nowrap">Situação</th>
+                    <th className="w-16 text-right whitespace-nowrap">Ações</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {filteredNewConsultations.length === 0 ? (
+                    <tr>
+                      <td colSpan={8} className="py-8 text-center text-slate-400">
+                        Nenhuma previsão de nova consulta encontrada com os filtros selecionados.
+                      </td>
+                    </tr>
+                  ) : (
+                    filteredNewConsultations.map((item) => (
+                      <tr key={`nc-${item.id}`} className="hover:bg-forest-50/20 transition-colors">
+                        <td className="font-mono font-bold text-slate-400 text-[11px]">
+                          #{item.id}
+                        </td>
+                        <td>
+                          <div className="font-bold text-slate-900">{item.patientName}</div>
+                          <div className="text-[11px] text-slate-400 font-mono flex flex-wrap items-center gap-x-1.5 gap-y-0.5 mt-0.5">
+                            <span>CPF: {formatCPF(item.cpf)}</span>
+                            <span>-</span>
+                            <span className="text-slate-600">{formatPhone(item.phone)}</span>
+                          </div>
+                        </td>
+                        <td className="font-mono text-slate-600 whitespace-nowrap">
+                          {formatReportDate(item.consultationDate)}
+                        </td>
+                        <td className="font-mono font-bold text-blue-900 whitespace-nowrap">
+                          {formatReportDate(item.estimatedDate)}
+                        </td>
+                        <td>
+                          <div className="text-slate-600 line-clamp-2 max-w-sm" title={item.reason}>
+                            {item.reason}
+                          </div>
+                        </td>
+                        <td className="text-slate-700 font-medium whitespace-nowrap">
+                          {item.doctor}
+                        </td>
+                        <td className="text-center whitespace-nowrap">
+                          <span className={item.statusColor}>
+                            {item.status}
+                          </span>
+                        </td>
+                        <td className="text-right whitespace-nowrap">
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              if (actionMenu?.id === `nc-${item.id}`) {
+                                setActionMenu(null);
+                              } else {
+                                const rect = e.currentTarget.getBoundingClientRect();
+                                setActionMenu({
+                                  id: `nc-${item.id}`,
+                                  item,
+                                  type: 'nova_consulta',
+                                  top: rect.bottom + 6,
+                                  right: Math.max(12, window.innerWidth - rect.right),
+                                });
+                              }
+                            }}
+                            className={`p-1.5 rounded-lg border transition-all inline-flex items-center justify-center ${
+                              actionMenu?.id === `nc-${item.id}` 
+                                ? 'bg-forest-100 border-forest-400 text-forest-900 shadow-sm' 
+                                : 'bg-white hover:bg-slate-100 text-slate-600 border-slate-200 shadow-hairline'
+                            }`}
+                            title="Ações de captação"
+                            aria-label="Ações de captação"
                           >
                             <MoreHorizontal className="w-4 h-4" />
                           </button>
@@ -675,15 +992,15 @@ export default function RelatoriosView({ setActiveModule }) {
           </div>
 
           <div className="clinical-panel overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="clinical-table">
+            <div className="overflow-x-auto w-full">
+              <table className="clinical-table min-w-[800px] w-full">
                 <thead>
                   <tr>
-                    <th>Horário</th>
-                    <th>Paciente</th>
-                    <th>Profissional</th>
-                    <th>Procedimento</th>
-                    <th className="text-center">Status</th>
+                    <th className="w-44">Data e Horário</th>
+                    <th className="min-w-[200px]">Paciente</th>
+                    <th className="w-44 whitespace-nowrap">Profissional</th>
+                    <th className="w-40 whitespace-nowrap">Procedimento</th>
+                    <th className="w-32 text-center whitespace-nowrap">Status</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
@@ -695,11 +1012,24 @@ export default function RelatoriosView({ setActiveModule }) {
                     </tr>
                   ) : filteredAppointments.map((a) => (
                     <tr key={a.id} className="hover:bg-forest-50/20 transition-colors">
-                      <td className="font-mono font-bold text-forest-900">{a.time}</td>
+                      <td className="font-mono whitespace-nowrap">
+                        <div className="font-bold text-forest-900 flex items-center gap-1.5">
+                          <Calendar className="w-3.5 h-3.5 text-forest-700 shrink-0" />
+                          <span>{a.date}</span>
+                        </div>
+                        <div className="text-[11px] text-slate-500 flex items-center gap-1.5 mt-0.5 font-medium">
+                          <Clock className="w-3 h-3 text-slate-400 shrink-0" />
+                          <span>{a.time}</span>
+                        </div>
+                      </td>
                       <td className="font-bold text-slate-900">{a.patient}</td>
-                      <td className="text-slate-700">{a.doctor}</td>
-                      <td>{a.procedure}</td>
-                      <td className="text-center">
+                      <td className="text-slate-700 font-medium whitespace-nowrap">{a.doctor}</td>
+                      <td>
+                        <span className="font-semibold text-slate-700 bg-slate-100 px-2 py-0.5 rounded-md border border-slate-200 text-[10.5px] whitespace-nowrap">
+                          {a.procedure}
+                        </span>
+                      </td>
+                      <td className="text-center whitespace-nowrap">
                         <span className={a.status === 'Concluído' ? 'badge-confirmed' : a.status === 'Em Atendimento' ? 'badge-in-progress' : 'badge-neutral'}>
                           {a.status}
                         </span>
@@ -720,7 +1050,7 @@ export default function RelatoriosView({ setActiveModule }) {
         <div className="space-y-4 animate-fade-in">
           <div className="clinical-panel p-4 flex items-center justify-between">
             <div className="flex items-center space-x-3">
-              <div className="w-10 h-10 rounded-xl bg-amber-50 text-amber-800 flex items-center justify-center border border-amber-200">
+              <div className="w-10 h-10 rounded-xl bg-amber-50 text-amber-800 flex items-center justify-center border border-amber-200 shrink-0">
                 <Cake className="w-5 h-5" />
               </div>
               <div>
@@ -731,15 +1061,15 @@ export default function RelatoriosView({ setActiveModule }) {
           </div>
 
           <div className="clinical-panel overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="clinical-table">
+            <div className="overflow-x-auto w-full">
+              <table className="clinical-table min-w-[700px] w-full">
                 <thead>
                   <tr>
-                    <th>Paciente</th>
-                    <th>Idade</th>
-                    <th>Data do Aniversário</th>
-                    <th>Telefone / Contato</th>
-                    <th className="text-right">Ações</th>
+                    <th className="min-w-[200px]">Paciente</th>
+                    <th className="w-24 text-center">Idade</th>
+                    <th className="w-36 text-center">Data do Aniversário</th>
+                    <th className="w-36">Telefone / Contato</th>
+                    <th className="w-36 text-right whitespace-nowrap">Ações</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
@@ -752,12 +1082,15 @@ export default function RelatoriosView({ setActiveModule }) {
                   ) : filteredBirthdays.map((b) => (
                     <tr key={b.id} className="hover:bg-forest-50/20 transition-colors">
                       <td className="font-bold text-slate-900">{b.name}</td>
-                      <td>{b.age} anos</td>
-                      <td className="font-bold text-amber-700">{b.date}</td>
-                      <td className="font-mono">{formatPhone(b.phone)}</td>
-                      <td className="text-right">
+                      <td className="text-center font-medium">{b.age} anos</td>
+                      <td className="font-bold text-amber-700 text-center font-mono">{b.date}</td>
+                      <td className="font-mono text-slate-600">{formatPhone(b.phone)}</td>
+                      <td className="text-right whitespace-nowrap">
                         <a
-                          href={`https://wa.me/55${b.phone.replace(/\D/g, '')}?text=Parabéns%20${encodeURIComponent(b.name)}!%20A%20equipe%20do%20Centro%20Visão%20deseja%20um%20feliz%20aniversário%20e%20muita%20saúde%20visual!`}
+                          href={buildWhatsAppLink(
+                            b.phone,
+                            `Olá, *${b.name}*! Tudo bem?\n\nA equipe do *${clinicName}* deseja a você um feliz aniversário, repleto de saúde visual e realizações!`
+                          )}
                           target="_blank"
                           rel="noreferrer"
                           className="btn-secondary py-1 px-3 inline-flex items-center space-x-1 text-emerald-700"
@@ -822,7 +1155,8 @@ export default function RelatoriosView({ setActiveModule }) {
                 Relatório Operacional & Clínico
               </span>
               <h2 className="text-sm font-bold text-slate-900 uppercase">
-                {activeReport === 'retornos' && 'Relatório de Retornos Indicados'}
+                {activeReport === 'retornos' && 'Relatório de Retornos Indicados (Gratuitos)'}
+                {activeReport === 'novas_consultas' && 'Relatório de Previsão de Novas Consultas (CRM)'}
                 {activeReport === 'agendamentos' && 'Relatório da Grade de Agendamentos'}
                 {activeReport === 'aniversariantes' && 'Relatório de Aniversariantes do Mês'}
               </h2>
@@ -831,6 +1165,7 @@ export default function RelatoriosView({ setActiveModule }) {
               <span className="text-[9px] font-bold uppercase tracking-wider text-slate-500 block">Total Listado</span>
               <strong className="text-xs font-bold text-forest-900 font-mono">
                 {activeReport === 'retornos' && `${filteredReturns.length} retorno(s)`}
+                {activeReport === 'novas_consultas' && `${filteredNewConsultations.length} paciente(s)`}
                 {activeReport === 'agendamentos' && `${filteredAppointments.length} agendamento(s)`}
                 {activeReport === 'aniversariantes' && `${filteredBirthdays.length} paciente(s)`}
               </strong>
@@ -852,6 +1187,10 @@ export default function RelatoriosView({ setActiveModule }) {
                   selectedStatus === 'all' ? 'Todos os Registros' :
                   selectedStatus === 'ultrapassada' ? 'Data Prevista Ultrapassada' :
                   selectedStatus === 'proximo' ? 'Próximos da Data (em até 15 dias)' : 'Datas Previstas Futuras'
+                ) : activeReport === 'novas_consultas' ? (
+                  selectedStatus === 'all' ? 'Todos os Registros' :
+                  selectedStatus === 'vencido' ? 'Prazos Expirados' :
+                  selectedStatus === 'proximo' ? 'Janela de Contato (30 dias)' : 'Em Dia / Futuras'
                 ) : 'Todos os Registros'}
               </strong>
             </div>
@@ -959,13 +1298,98 @@ export default function RelatoriosView({ setActiveModule }) {
           </div>
         )}
 
+        {/* Resumo de Indicadores da Impressão - Novas Consultas */}
+        {activeReport === 'novas_consultas' && (
+          <div className="grid grid-cols-4 gap-1.5 text-center text-[10px] print-avoid-break">
+            <div className="border border-slate-300 bg-white p-1.5 rounded-md">
+              <span className="text-[9px] text-slate-500 uppercase font-semibold block">Total</span>
+              <span className="font-mono font-bold text-xs text-slate-900">{filteredNewConsultations.length}</span>
+            </div>
+            <div className="border border-slate-300 bg-white p-1.5 rounded-md">
+              <span className="text-[9px] text-emerald-700 uppercase font-semibold block">Em Dia / Futuras</span>
+              <span className="font-mono font-bold text-xs text-emerald-800">
+                {filteredNewConsultations.filter(r => r.statusKey === 'programado').length}
+              </span>
+            </div>
+            <div className="border border-slate-300 bg-white p-1.5 rounded-md">
+              <span className="text-[9px] text-amber-700 uppercase font-semibold block">Janela de Contato</span>
+              <span className="font-mono font-bold text-xs text-amber-800">
+                {filteredNewConsultations.filter(r => r.statusKey === 'proximo').length}
+              </span>
+            </div>
+            <div className="border border-slate-300 bg-white p-1.5 rounded-md">
+              <span className="text-[9px] text-rose-700 uppercase font-semibold block">Prazos Expirados</span>
+              <span className="font-mono font-bold text-xs text-rose-800">
+                {filteredNewConsultations.filter(r => r.statusKey === 'vencido').length}
+              </span>
+            </div>
+          </div>
+        )}
+
+        {/* Tabela de Dados Impressos - Novas Consultas */}
+        {activeReport === 'novas_consultas' && (
+          <div className="border border-slate-300 rounded-lg overflow-hidden bg-white">
+            <table className="w-full text-left border-collapse text-[9.5px] bg-white">
+              <thead>
+                <tr className="bg-white border-b border-slate-300 font-bold text-slate-800 uppercase text-[9px]">
+                  <th className="py-1.5 px-2 border-r border-slate-200 w-10 text-center">Cód</th>
+                  <th className="py-1.5 px-2 border-r border-slate-200">Paciente</th>
+                  <th className="py-1.5 px-2 border-r border-slate-200">CPF / Telefone</th>
+                  <th className="py-1.5 px-2 border-r border-slate-200 whitespace-nowrap">Consulta Origem</th>
+                  <th className="py-1.5 px-2 border-r border-slate-300 font-extrabold text-slate-900 text-center whitespace-nowrap">
+                    Previsão Nova Consulta
+                  </th>
+                  <th className="py-1.5 px-2 border-r border-slate-200">Indicação / Motivo</th>
+                  <th className="py-1.5 px-2">Profissional</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-200 leading-tight bg-white">
+                {filteredNewConsultations.length === 0 ? (
+                  <tr>
+                    <td colSpan={7} className="p-3 text-center text-slate-500 italic bg-white">
+                      Nenhuma previsão de nova consulta encontrada com os critérios selecionados.
+                    </td>
+                  </tr>
+                ) : (
+                  filteredNewConsultations.map((r, idx) => (
+                    <tr key={r.id || idx} className="align-top print-avoid-break bg-white">
+                      <td className="py-1.5 px-2 border-r border-slate-200 font-mono text-center font-bold text-slate-700">
+                        #{r.id}
+                      </td>
+                      <td className="py-1.5 px-2 border-r border-slate-200 font-bold text-slate-900">
+                        {r.patientName}
+                      </td>
+                      <td className="py-1.5 px-2 border-r border-slate-200 font-mono text-[9px]">
+                        <div>{r.cpf ? formatCPF(r.cpf) : '—'}</div>
+                        <div className="text-slate-600">{r.phone ? formatPhone(r.phone) : '—'}</div>
+                      </td>
+                      <td className="py-1.5 px-2 border-r border-slate-200 font-mono whitespace-nowrap text-slate-700">
+                        {formatReportDate(r.consultationDate)}
+                      </td>
+                      <td className="py-1.5 px-2 border-r border-slate-300 font-mono font-extrabold text-blue-900 text-center whitespace-nowrap text-[10px]">
+                        {formatReportDate(r.estimatedDate)}
+                      </td>
+                      <td className="py-1.5 px-2 border-r border-slate-200 text-slate-700">
+                        {r.reason}
+                      </td>
+                      <td className="py-1.5 px-2 font-medium text-slate-800 whitespace-nowrap">
+                        {r.doctor}
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        )}
+
         {/* Tabela de Dados Impressos - Agendamentos */}
         {activeReport === 'agendamentos' && (
           <div className="border border-slate-300 rounded-lg overflow-hidden bg-white">
             <table className="w-full text-left border-collapse text-[9.5px] bg-white">
               <thead>
                 <tr className="bg-white border-b border-slate-300 font-bold text-slate-800 uppercase text-[9px]">
-                  <th className="py-1.5 px-2 border-r border-slate-200 w-14 text-center">Horário</th>
+                  <th className="py-1.5 px-2 border-r border-slate-200 w-24 text-center">Data / Horário</th>
                   <th className="py-1.5 px-2 border-r border-slate-200">Paciente</th>
                   <th className="py-1.5 px-2 border-r border-slate-200">Profissional</th>
                   <th className="py-1.5 px-2 border-r border-slate-200">Procedimento</th>
@@ -982,8 +1406,9 @@ export default function RelatoriosView({ setActiveModule }) {
                 ) : (
                   filteredAppointments.map((a, idx) => (
                     <tr key={a.id || idx} className="print-avoid-break bg-white">
-                      <td className="py-1.5 px-2 border-r border-slate-200 font-mono font-bold text-center text-slate-900">
-                        {a.time}
+                      <td className="py-1.5 px-2 border-r border-slate-200 font-mono text-center">
+                        <div className="font-bold text-slate-900">{a.date}</div>
+                        <div className="text-[8.5px] text-slate-500">{a.time}</div>
                       </td>
                       <td className="py-1.5 px-2 border-r border-slate-200 font-bold text-slate-900">
                         {a.patient}
@@ -1085,66 +1510,205 @@ export default function RelatoriosView({ setActiveModule }) {
             right: `${actionMenu.right}px`,
           }}
           onClick={(e) => e.stopPropagation()}
-          className="z-[999999] min-w-[200px] bg-white border border-slate-200 rounded-xl shadow-modal p-1 space-y-0.5 animate-fade-in text-xs font-sans print:hidden"
+          className="z-[999999] min-w-[220px] bg-white border border-slate-200 rounded-xl shadow-modal p-1 space-y-0.5 animate-fade-in text-xs font-sans print:hidden"
         >
-          <a
-            href={buildWhatsAppLink(
-              actionMenu.item.phone,
-              buildReturnWhatsAppMessage({
-                patientName: actionMenu.item.patientName,
-                returnDate: actionMenu.item.returnDate,
-                returnType: actionMenu.item.returnType,
-                reason: actionMenu.item.reason,
-                doctor: actionMenu.item.doctor,
-                consultationDate: actionMenu.item.consultationDate,
-                clinicName: clinicInfo.name || 'Centro Visão',
-                clinicPhone: clinicInfo.phone ? formatPhone(clinicInfo.phone) : '',
-                clinicAddress: [
-                  clinicInfo.address,
-                  clinicInfo.city && clinicInfo.state ? `${clinicInfo.city} - ${clinicInfo.state}` : (clinicInfo.city || clinicInfo.state),
-                  clinicInfo.cep ? `CEP: ${formatCEP(clinicInfo.cep)}` : null,
-                ].filter(Boolean).join(' • ')
-              })
-            )}
-            target="_blank"
-            rel="noreferrer"
-            onClick={() => setActionMenu(null)}
-            className="flex items-center gap-2.5 px-3 py-2 text-xs font-semibold text-emerald-700 hover:bg-emerald-50 rounded-lg transition-colors w-full"
-          >
-            <MessageSquare className="w-4 h-4 text-emerald-600 shrink-0" />
-            <div className="text-left">
-              <div>WhatsApp</div>
-              <div className="text-[10px] font-normal text-slate-400">Enviar lembrete detalhado</div>
-            </div>
-          </a>
+          {actionMenu.type === 'nova_consulta' ? (
+            <>
+              <a
+                href={buildWhatsAppLink(
+                  actionMenu.item.phone,
+                  generateNewConsultationMessage({
+                    patientName: actionMenu.item.patientName,
+                    estimatedDate: actionMenu.item.estimatedDate,
+                    reason: actionMenu.item.reason,
+                    doctor: actionMenu.item.doctor,
+                    consultationDate: actionMenu.item.consultationDate,
+                    clinicName: clinicInfo.name || 'Centro Visão',
+                    clinicPhone: clinicInfo.phone ? formatPhone(clinicInfo.phone) : '',
+                    clinicAddress: [
+                      clinicInfo.address,
+                      clinicInfo.city && clinicInfo.state ? `${clinicInfo.city} - ${clinicInfo.state}` : (clinicInfo.city || clinicInfo.state),
+                      clinicInfo.cep ? `CEP: ${formatCEP(clinicInfo.cep)}` : null,
+                    ].filter(Boolean).join(' - ')
+                  })
+                )}
+                target="_blank"
+                rel="noreferrer"
+                onClick={() => setActionMenu(null)}
+                className="flex items-center gap-2.5 px-3 py-2 text-xs font-semibold text-emerald-700 hover:bg-emerald-50 rounded-lg transition-colors w-full"
+              >
+                <MessageSquare className="w-4 h-4 text-emerald-600 shrink-0" />
+                <div className="text-left">
+                  <div>WhatsApp de Captação</div>
+                  <div className="text-[10px] font-normal text-slate-400">Revisão e validade dos óculos</div>
+                </div>
+              </a>
 
-          <button
-            type="button"
-            onClick={() => {
-              const item = actionMenu.item;
-              setActionMenu(null);
-              setActiveModule?.('agenda', {
-                state: {
-                  agendaPrefill: {
-                    patientId: item.patientId,
-                    patient: item.patientName,
-                    phone: item.phone,
-                    cpf: item.cpf,
-                    lockPatient: true,
-                  },
-                },
-              });
-            }}
-            className="flex items-center gap-2.5 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 rounded-lg transition-colors w-full text-left"
-          >
-            <Calendar className="w-4 h-4 text-forest-700 shrink-0" />
-            <div className="text-left">
-              <div>Agendar Consulta</div>
-              <div className="text-[10px] font-normal text-slate-400">Abrir na agenda</div>
-            </div>
-          </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const item = actionMenu.item;
+                  const message = generateNewConsultationMessage({
+                    patientName: item.patientName,
+                    estimatedDate: item.estimatedDate,
+                    reason: item.reason,
+                    doctor: item.doctor,
+                    consultationDate: item.consultationDate,
+                    clinicName: clinicInfo.name || 'Centro Visão',
+                    clinicPhone: clinicInfo.phone ? formatPhone(clinicInfo.phone) : '',
+                    clinicAddress: [
+                      clinicInfo.address,
+                      clinicInfo.city && clinicInfo.state ? `${clinicInfo.city} - ${clinicInfo.state}` : (clinicInfo.city || clinicInfo.state),
+                      clinicInfo.cep ? `CEP: ${formatCEP(clinicInfo.cep)}` : null,
+                    ].filter(Boolean).join(' - ')
+                  });
+                  navigator.clipboard?.writeText(message);
+                  setCopiedMessageId(item.id || item.patientId || 'copied');
+                  setTimeout(() => setCopiedMessageId(null), 3000);
+                  setActionMenu(null);
+                }}
+                className="flex items-center gap-2.5 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 rounded-lg transition-colors w-full text-left"
+              >
+                <Copy className="w-4 h-4 text-slate-600 shrink-0" />
+                <div className="text-left">
+                  <div>Copiar Mensagem</div>
+                  <div className="text-[10px] font-normal text-slate-400">Copiar texto da notificação</div>
+                </div>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  const item = actionMenu.item;
+                  setActionMenu(null);
+                  setActiveModule?.('agenda', {
+                    state: {
+                      agendaPrefill: {
+                        patientId: item.patientId,
+                        patient: item.patientName,
+                        phone: item.phone,
+                        cpf: item.cpf,
+                        procedure: 'Consulta',
+                        lockPatient: true,
+                      },
+                    },
+                  });
+                }}
+                className="flex items-center gap-2.5 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 rounded-lg transition-colors w-full text-left"
+              >
+                <Calendar className="w-4 h-4 text-forest-700 shrink-0" />
+                <div className="text-left">
+                  <div>Agendar Nova Consulta</div>
+                  <div className="text-[10px] font-normal text-slate-400">Abrir na agenda (paga)</div>
+                </div>
+              </button>
+            </>
+          ) : (
+            <>
+              <a
+                href={buildWhatsAppLink(
+                  actionMenu.item.phone,
+                  buildReturnWhatsAppMessage({
+                    patientName: actionMenu.item.patientName,
+                    returnDate: actionMenu.item.returnDate,
+                    returnType: actionMenu.item.returnType,
+                    reason: actionMenu.item.reason,
+                    doctor: actionMenu.item.doctor,
+                    consultationDate: actionMenu.item.consultationDate,
+                    clinicName: clinicInfo.name || 'Centro Visão',
+                    clinicPhone: clinicInfo.phone ? formatPhone(clinicInfo.phone) : '',
+                    clinicAddress: [
+                      clinicInfo.address,
+                      clinicInfo.city && clinicInfo.state ? `${clinicInfo.city} - ${clinicInfo.state}` : (clinicInfo.city || clinicInfo.state),
+                      clinicInfo.cep ? `CEP: ${formatCEP(clinicInfo.cep)}` : null,
+                    ].filter(Boolean).join(' - ')
+                  })
+                )}
+                target="_blank"
+                rel="noreferrer"
+                onClick={() => setActionMenu(null)}
+                className="flex items-center gap-2.5 px-3 py-2 text-xs font-semibold text-emerald-700 hover:bg-emerald-50 rounded-lg transition-colors w-full"
+              >
+                <MessageSquare className="w-4 h-4 text-emerald-600 shrink-0" />
+                <div className="text-left">
+                  <div>WhatsApp Retorno Gratuito</div>
+                  <div className="text-[10px] font-normal text-slate-400">Enviar lembrete isento</div>
+                </div>
+              </a>
+
+              <button
+                type="button"
+                onClick={() => {
+                  const item = actionMenu.item;
+                  const message = buildReturnWhatsAppMessage({
+                    patientName: item.patientName,
+                    returnDate: item.returnDate,
+                    returnType: item.returnType,
+                    reason: item.reason,
+                    doctor: item.doctor,
+                    consultationDate: item.consultationDate,
+                    clinicName: clinicInfo.name || 'Centro Visão',
+                    clinicPhone: clinicInfo.phone ? formatPhone(clinicInfo.phone) : '',
+                    clinicAddress: [
+                      clinicInfo.address,
+                      clinicInfo.city && clinicInfo.state ? `${clinicInfo.city} - ${clinicInfo.state}` : (clinicInfo.city || clinicInfo.state),
+                      clinicInfo.cep ? `CEP: ${formatCEP(clinicInfo.cep)}` : null,
+                    ].filter(Boolean).join(' - ')
+                  });
+                  navigator.clipboard?.writeText(message);
+                  setCopiedMessageId(item.id || item.patientId || 'copied');
+                  setTimeout(() => setCopiedMessageId(null), 3000);
+                  setActionMenu(null);
+                }}
+                className="flex items-center gap-2.5 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 rounded-lg transition-colors w-full text-left"
+              >
+                <Copy className="w-4 h-4 text-slate-600 shrink-0" />
+                <div className="text-left">
+                  <div>Copiar Mensagem</div>
+                  <div className="text-[10px] font-normal text-slate-400">Copiar texto do lembrete</div>
+                </div>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  const item = actionMenu.item;
+                  setActionMenu(null);
+                  setActiveModule?.('agenda', {
+                    state: {
+                      agendaPrefill: {
+                        patientId: item.patientId,
+                        patient: item.patientName,
+                        phone: item.phone,
+                        cpf: item.cpf,
+                        procedure: 'Retorno',
+                        lockPatient: true,
+                      },
+                    },
+                  });
+                }}
+                className="flex items-center gap-2.5 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 rounded-lg transition-colors w-full text-left"
+              >
+                <Calendar className="w-4 h-4 text-forest-700 shrink-0" />
+                <div className="text-left">
+                  <div>Agendar Retorno</div>
+                  <div className="text-[10px] font-normal text-slate-400">Abrir na agenda (isento)</div>
+                </div>
+              </button>
+            </>
+          )}
         </div>,
         document.body
+      )}
+
+      {/* Notificação Toast ao copiar mensagem */}
+      {copiedMessageId && (
+        <ToastNotification
+          message="Mensagem copiada para a área de transferência!"
+          type="success"
+          duration={3000}
+          onClose={() => setCopiedMessageId(null)}
+        />
       )}
 
     </div>

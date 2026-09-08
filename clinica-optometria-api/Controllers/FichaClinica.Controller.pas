@@ -63,6 +63,7 @@ uses
   Autorizacao.Middleware,
   Autorizacao.Service,
   FichaClinica.Service,
+  Correlation.Middleware,
   Response.Utils,
   Logger.Utils;
 
@@ -78,6 +79,7 @@ end;
 class procedure TFichaClinicaController.ListarSecoes(Req: THorseRequest; Res: THorseResponse; Next: TProc);
 var
   Service: TFichaClinicaService;
+  LCorrelationId: string;
 begin
   Service := TFichaClinicaService.Create;
   try
@@ -88,8 +90,9 @@ begin
     except
       on E: Exception do
       begin
-        TLogger.Error('FichaClinicaController.ListarSecoes', E);
-        Res.Send<TJSONObject>(TResponseUtils.InternalError(E.Message))
+        LCorrelationId := ObterCorrelationId(Req);
+        TLogger.Error(Format('[%s] %s', [LCorrelationId, 'FichaClinicaController.ListarSecoes']), E);
+        Res.Send<TJSONObject>(TResponseUtils.InternalError('Ocorreu um erro interno ao processar a solicitacao', LCorrelationId))
           .Status(THTTPStatus.InternalServerError);
       end;
     end;
@@ -103,6 +106,7 @@ var
   Service: TFichaClinicaService;
   LBody: TJSONObject;
   LSecoesValue: TJSONValue;
+  LCorrelationId: string;
 begin
   Service := TFichaClinicaService.Create;
   try
@@ -130,9 +134,10 @@ begin
     except
       on E: Exception do
       begin
-        TLogger.Error('FichaClinicaController.AtualizarOrdem', E);
-        Res.Send<TJSONObject>(TResponseUtils.Error(E.Message, 422))
-          .Status(THTTPStatus.UnprocessableEntity);
+        LCorrelationId := ObterCorrelationId(Req);
+        TLogger.Error(Format('[%s] %s', [LCorrelationId, 'FichaClinicaController.AtualizarOrdem']), E);
+        Res.Send<TJSONObject>(TResponseUtils.InternalError('Ocorreu um erro interno ao processar a solicitacao', LCorrelationId))
+          .Status(THTTPStatus.InternalServerError);
       end;
     end;
   finally
@@ -146,6 +151,7 @@ var
   LBody: TJSONObject;
   LId: Integer;
   LAtivoValue: TJSONValue;
+  LCorrelationId: string;
 begin
   Service := TFichaClinicaService.Create;
   try
@@ -175,9 +181,10 @@ begin
     except
       on E: Exception do
       begin
-        TLogger.Error('FichaClinicaController.AtualizarAtivo', E);
-        Res.Send<TJSONObject>(TResponseUtils.Error(E.Message, 422))
-          .Status(THTTPStatus.UnprocessableEntity);
+        LCorrelationId := ObterCorrelationId(Req);
+        TLogger.Error(Format('[%s] %s', [LCorrelationId, 'FichaClinicaController.AtualizarAtivo']), E);
+        Res.Send<TJSONObject>(TResponseUtils.InternalError('Ocorreu um erro interno ao processar a solicitacao', LCorrelationId))
+          .Status(THTTPStatus.InternalServerError);
       end;
     end;
   finally
@@ -193,6 +200,7 @@ var
   LExibeTela: Integer;
   LExibeImpressao: Integer;
   LValue: TJSONValue;
+  LCorrelationId: string;
 begin
   Service := TFichaClinicaService.Create;
   try
@@ -236,9 +244,10 @@ begin
     except
       on E: Exception do
       begin
-        TLogger.Error('FichaClinicaController.AtualizarExibicao', E);
-        Res.Send<TJSONObject>(TResponseUtils.Error(E.Message, 422))
-          .Status(THTTPStatus.UnprocessableEntity);
+        LCorrelationId := ObterCorrelationId(Req);
+        TLogger.Error(Format('[%s] %s', [LCorrelationId, 'FichaClinicaController.AtualizarExibicao']), E);
+        Res.Send<TJSONObject>(TResponseUtils.InternalError('Ocorreu um erro interno ao processar a solicitacao', LCorrelationId))
+          .Status(THTTPStatus.InternalServerError);
       end;
     end;
   finally
@@ -252,6 +261,7 @@ var
   LBody: TJSONObject;
   LSecoesValue: TJSONValue;
   LArraySecoes: TJSONArray;
+  LCorrelationId: string;
 begin
   Service := TFichaClinicaService.Create;
   try
@@ -284,9 +294,10 @@ begin
     except
       on E: Exception do
       begin
-        TLogger.Error('FichaClinicaController.SalvarConfiguracaoCompleta', E);
-        Res.Send<TJSONObject>(TResponseUtils.Error(E.Message, 422))
-          .Status(THTTPStatus.UnprocessableEntity);
+        LCorrelationId := ObterCorrelationId(Req);
+        TLogger.Error(Format('[%s] %s', [LCorrelationId, 'FichaClinicaController.SalvarConfiguracaoCompleta']), E);
+        Res.Send<TJSONObject>(TResponseUtils.InternalError('Ocorreu um erro interno ao processar a solicitacao', LCorrelationId))
+          .Status(THTTPStatus.InternalServerError);
       end;
     end;
   finally

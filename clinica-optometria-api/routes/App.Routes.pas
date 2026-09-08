@@ -30,6 +30,7 @@ uses
   FichaClinicaDados.Service,
   ConfiguracaoClinica.Service,
   ConfiguracaoClinica.Controller,
+  Auditoria.Service,
   Auth.Middleware, 
   Auth.Controller;
 
@@ -43,6 +44,7 @@ type
 
 class procedure TAppRoutes.Routes;
 begin
+  TAuditoriaService.Inicializar;
   TAutorizacaoService.Inicializar;
   TFuncionarioService.Inicializar;
   TParceriaService.Inicializar;

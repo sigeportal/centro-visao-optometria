@@ -170,6 +170,7 @@ export default function AgendaView({ setActiveModule }) {
 
   const showToast = (message, type = 'success') => {
     setToast({ message, type });
+    setTimeout(() => setToast(null), 3500);
   };
 
   const openCreateModal = (prefill = {}) => {

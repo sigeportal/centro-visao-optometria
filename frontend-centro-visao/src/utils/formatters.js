@@ -146,49 +146,140 @@ export function buildReturnWhatsAppMessage({
   const firstName = String(patientName || 'Paciente').trim();
   const dateFormatted = formatDate(returnDate) || 'a combinar';
   const consultDateFormatted = formatDate(consultationDate);
-  
-  let msg = `Olá, *${firstName}*! Tudo bem? 😊\n\n`;
+
+  const blocks = [];
+
+  blocks.push(`Olá, *${firstName}*! Tudo bem?`);
+
   if (clinicName) {
-    msg += `Aqui é da equipe do *${clinicName}*.\n\n`;
-  }
-  msg += `Estamos entrando em contato porque seu profissional indicou um retorno optométrico para o período abaixo:\n\n`;
-  msg += `📅 *Data prevista para o retorno:* ${dateFormatted}\n`;
-  if (returnType) {
-    msg += `📋 *Tipo de Acompanhamento:* ${returnType}\n`;
-  }
-  if (reason) {
-    msg += `🎯 *Motivo / Conduta Clínica:* ${reason}\n`;
-  }
-  if (doctor) {
-    msg += `👨‍⚕️ *Profissional:* ${doctor}\n`;
-  }
-  if (consultDateFormatted) {
-    msg += `🗓️ *Última Consulta:* ${consultDateFormatted}\n`;
-  }
-  
-  msg += `\n💡 *Por que o retorno é importante?*\n`;
-  msg += `O acompanhamento preventivo é indispensável para avaliar a evolução da sua acuidade visual, adaptação às lentes/óculos e garantir a saúde dos seus olhos.\n\n`;
-  msg += `Gostaria de agendar o melhor dia e horário para o seu atendimento?\n`;
-  msg += `_Basta responder a esta mensagem que nossa recepção confirma para você!_ ✨\n\n`;
-  if (clinicName) {
-    msg += `📍 *${clinicName}*\n`;
-  }
-  if (clinicAddress) {
-    msg += `${clinicAddress}\n`;
-  }
-  if (clinicPhone) {
-    msg += `📞 Telefone / WhatsApp: ${clinicPhone}\n`;
+    blocks.push(`Aqui é da equipe do *${clinicName}*.`);
   }
 
-  return msg.trim();
+  blocks.push('Estamos entrando em contato para confirmar o seu *retorno optométrico gratuito* agendado:');
+
+  const items = [];
+  items.push(`- *Data do Retorno:* ${dateFormatted}`);
+  if (returnType) {
+    items.push(`- *Tipo:* ${returnType}`);
+  }
+  if (reason) {
+    items.push(`- *Motivo / Avaliação:* ${reason}`);
+  }
+  if (doctor) {
+    items.push(`- *Profissional:* ${doctor}`);
+  }
+  if (consultDateFormatted) {
+    items.push(`- *Consulta de Origem:* ${consultDateFormatted}`);
+  }
+  blocks.push(items.join('\n'));
+
+  blocks.push('*Lembrete:* Este retorno é um acompanhamento clínico gratuito para conferir sua adaptação e saúde visual.');
+  blocks.push('Podemos confirmar sua presença?\nBasta responder a esta mensagem para nossa recepção!');
+
+  const footer = [];
+  if (clinicName) footer.push(`*${clinicName}*`);
+  if (clinicAddress) footer.push(clinicAddress);
+  if (clinicPhone) footer.push(`Telefone / WhatsApp: ${clinicPhone}`);
+  if (footer.length > 0) {
+    blocks.push(footer.join('\n'));
+  }
+
+  return blocks.join('\n\n').trim();
 }
 
 /**
- * Builds direct wa.me link with sanitization and encoded message
+ * Gera mensagem de WhatsApp para reconvocação / captação de Nova Consulta (CRM / Validade dos Óculos)
+ */
+export function generateNewConsultationMessage({
+  patientName,
+  estimatedDate,
+  reason,
+  doctor,
+  consultationDate,
+  clinicName = '',
+  clinicPhone = '',
+  clinicAddress = ''
+}) {
+  const firstName = String(patientName || 'Paciente').trim();
+  const dateFormatted = formatDate(estimatedDate) || 'revisão periódica';
+  const consultDateFormatted = formatDate(consultationDate);
+
+  const blocks = [];
+
+  blocks.push(`Olá, *${firstName}*! Tudo bem?`);
+
+  if (clinicName) {
+    blocks.push(`Aqui é da equipe do *${clinicName}*.`);
+  }
+
+  blocks.push('Estamos entrando em contato para lembrar sobre a *revisão periódica da sua saúde visual*:');
+
+  const items = [];
+  if (consultDateFormatted) {
+    items.push(`- *Último exame realizado em:* ${consultDateFormatted}`);
+  }
+  items.push(`- *Previsão recomendada para nova consulta:* ${dateFormatted}`);
+  if (reason) {
+    items.push(`- *Indicação / Motivo:* ${reason}`);
+  }
+  if (doctor) {
+    items.push(`- *Profissional:* ${doctor}`);
+  }
+  blocks.push(items.join('\n'));
+
+  blocks.push('*Por que é importante renovar sua consulta?*\nA validade das receitas de óculos costuma expirar após 1 ano. Além disso, a visão muda gradualmente e uma nova consulta garante o ajuste preciso do seu grau e a prevenção de alterações oculares.');
+
+  blocks.push('Gostaria de agendar o melhor dia e horário para a sua nova consulta?\nBasta responder a esta mensagem que teremos o prazer em agendar o seu atendimento!');
+
+  const footer = [];
+  if (clinicName) footer.push(`*${clinicName}*`);
+  if (clinicAddress) footer.push(clinicAddress);
+  if (clinicPhone) footer.push(`Telefone / WhatsApp: ${clinicPhone}`);
+  if (footer.length > 0) {
+    blocks.push(footer.join('\n'));
+  }
+
+  return blocks.join('\n\n').trim();
+}
+
+/**
+ * Builds direct WhatsApp dispatch link with sanitization and clean encoded message
  */
 export function buildWhatsAppLink(phone, message) {
   if (!phone) return '';
   const digits = String(phone).replace(/\D/g, '');
+  if (!digits) return '';
   const cleanNumber = digits.startsWith('55') ? digits : `55${digits}`;
-  return `https://wa.me/${cleanNumber}?text=${encodeURIComponent(message)}`;
+  const cleanText = String(message || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim();
+  return `https://api.whatsapp.com/send?phone=${cleanNumber}&text=${encodeURIComponent(cleanText)}`;
+}
+
+/**
+ * Formata dioptria óptica (esférico, cilíndrico, adição) com 2 casas decimais.
+ * Ex.: 1 -> 1.00; -0.5 -> -0.50; +1.25 -> +1.25 (ou 1.25 se keepSign=false)
+ */
+export function formatDiopter(value, { withExplicitPlus = false } = {}) {
+  if (value === null || value === undefined) return '';
+  const str = String(value).trim().replace(',', '.');
+  if (!str) return '';
+
+  const num = parseFloat(str);
+  if (Number.isNaN(num)) return str;
+
+  const formatted = Math.abs(num).toFixed(2);
+  if (num < 0) return `-${formatted}`;
+  if (num > 0 && withExplicitPlus) return `+${formatted}`;
+  return num === 0 ? '0.00' : formatted;
+}
+
+/**
+ * Formata eixo óptico (0 a 180 graus inteiros)
+ */
+export function formatAxis(value) {
+  if (value === null || value === undefined) return '';
+  const str = String(value).trim().replace(/°/g, '');
+  if (!str) return '';
+  const num = parseInt(str, 10);
+  if (Number.isNaN(num)) return str;
+  return String(Math.max(0, Math.min(180, num)));
 }
