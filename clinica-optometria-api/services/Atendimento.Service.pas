@@ -25,7 +25,11 @@ type
 implementation
 
 uses
+  Data.DB,
+  FireDAC.Stan.Param,
   System.DateUtils,
+  System.StrUtils,
+  UnitConnection.Model.Interfaces,
   UnitDatabase,
   Models.Clinica;
 
@@ -37,12 +41,65 @@ const
   RETORNO_SEM_RETORNO = 'sem_retorno';
   RETORNO_RECUSADO_PELO_PACIENTE = 'recusado_pelo_paciente';
 
+function CampoRetornoExiste(const ACampo: string): Boolean;
+var
+  LQuery: iQuery;
+begin
+  LQuery := TDatabase.Query;
+  LQuery.Clear;
+  LQuery.Add('SELECT COUNT(*) AS TOTAL FROM RDB$RELATION_FIELDS ');
+  LQuery.Add('WHERE TRIM(RDB$RELATION_NAME) = ''RETORNOS_CONSULTA'' ');
+  LQuery.Add('AND TRIM(RDB$FIELD_NAME) = :CAMPO');
+  LQuery.AddParam('CAMPO', UpperCase(ACampo));
+  LQuery.Open;
+  Result := LQuery.DataSet.FieldByName('TOTAL').AsInteger > 0;
+end;
+
+procedure GarantirCampoRetorno(const ACampo, ATipo: string);
+var
+  LQuery: iQuery;
+begin
+  if CampoRetornoExiste(ACampo) then
+    Exit;
+  try
+    LQuery := TDatabase.Query;
+    LQuery.Clear;
+    LQuery.Add('ALTER TABLE RETORNOS_CONSULTA ADD ' + ACampo + ' ' + ATipo);
+    LQuery.ExecSQL;
+  except
+  end;
+end;
+
 function TextoJSON(ADados: TJSONObject; const ANome: string; const APadrao: string = ''): string;
 begin
   if Assigned(ADados) then
     Result := Trim(ADados.GetValue<string>(ANome, APadrao))
   else
     Result := APadrao;
+end;
+
+function TemCampoJSON(ADados: TJSONObject; const ANome: string): Boolean;
+begin
+  Result := Assigned(ADados) and (ADados.Get(ANome) <> nil);
+end;
+
+function BoolJSON(ADados: TJSONObject; const ANome: string; const APadrao: Boolean = False): Boolean;
+var
+  LPair: TJSONPair;
+begin
+  Result := APadrao;
+  if not Assigned(ADados) then
+    Exit;
+  LPair := ADados.Get(ANome);
+  if Assigned(LPair) and Assigned(LPair.JsonValue) then
+  begin
+    if LPair.JsonValue is TJSONBool then
+      Result := TJSONBool(LPair.JsonValue).AsBoolean
+    else if LPair.JsonValue is TJSONNumber then
+      Result := TJSONNumber(LPair.JsonValue).AsInt > 0
+    else if LPair.JsonValue is TJSONString then
+      Result := SameText(Trim(LPair.JsonValue.Value), 'true') or (Trim(LPair.JsonValue.Value) = '1');
+  end;
 end;
 
 function DataJSON(ADados: TJSONObject; const ANome: string): TDateTime;
@@ -71,6 +128,8 @@ function SituacaoRetornoValida(const ASituacao: string): Boolean;
 begin
   Result :=
     (ASituacao = RETORNO_PROGRAMADO) or
+    (ASituacao = 'retorno') or
+    (ASituacao = 'nova_consulta') or
     (ASituacao = RETORNO_SEM_RETORNO) or
     (ASituacao = RETORNO_RECUSADO_PELO_PACIENTE);
 end;
@@ -107,6 +166,12 @@ begin
   finally
     LRetorno.Free;
   end;
+
+  GarantirCampoRetorno('RET_TEM_RETORNO', 'SMALLINT DEFAULT 1');
+  GarantirCampoRetorno('RET_TEM_NOVA_CONSULTA', 'SMALLINT DEFAULT 0');
+  GarantirCampoRetorno('RET_NOVA_CONSULTA_DATA', 'DATE');
+  GarantirCampoRetorno('RET_NOVA_CONSULTA_MOTIVO', 'VARCHAR(255)');
+  GarantirCampoRetorno('RET_NOVA_CONSULTA_OBSERVACAO', 'BLOB SUB_TYPE TEXT');
 end;
 
 function TAtendimentoService.Iniciar(AAgendamentoId: Integer; out AStatus: string): Integer;
@@ -247,100 +312,140 @@ var
   LDataRetorno: TDateTime;
   LMotivo: string;
   LObservacao: string;
-  LRetornoId: Integer;
+  LTemRetorno: Integer;
+  LTemNovaConsulta: Integer;
+  LNovaConsultaData: TDateTime;
+  LNovaConsultaMotivo: string;
+  LNovaConsultaObservacao: string;
+  LRetorno: TModelRetornoConsulta;
   LAgora: TDateTime;
 begin
   if AUsuarioId <= 0 then
     raise EAtendimentoValidacao.Create('Usuario autenticado invalido');
   if not Assigned(ADados) then
-    raise EAtendimentoValidacao.Create('Informe o plano de retorno antes de finalizar');
+    raise EAtendimentoValidacao.Create('Informe o plano de acompanhamento antes de finalizar');
 
   LSituacao := LowerCase(TextoJSON(ADados, 'situacao'));
+  if LSituacao = '' then
+    LSituacao := RETORNO_PROGRAMADO;
+
   if not SituacaoRetornoValida(LSituacao) then
     raise EAtendimentoValidacao.Create('Informe a decisao de acompanhamento');
+
+  // Identifica Retorno Gratuito (curto prazo)
+  LTemRetorno := 0;
+  if (LSituacao = RETORNO_PROGRAMADO) or (LSituacao = 'retorno') then
+  begin
+    if TemCampoJSON(ADados, 'tem_retorno') then
+    begin
+      if BoolJSON(ADados, 'tem_retorno', False) then
+        LTemRetorno := 1;
+    end
+    else if TextoJSON(ADados, 'data_retorno') <> '' then
+      LTemRetorno := 1;
+  end;
 
   LTipo := LowerCase(TextoJSON(ADados, 'tipo'));
   if Length(LTipo) > 30 then
     raise EAtendimentoValidacao.Create('O tipo de retorno deve ter no maximo 30 caracteres');
+  if (LTemRetorno = 1) and (LTipo = '') then
+    LTipo := 'adaptacao';
 
   LDataRetorno := DataJSON(ADados, 'data_retorno');
-  if (LSituacao = RETORNO_PROGRAMADO) and (LTipo = '') then
-    raise EAtendimentoValidacao.Create('Informe o tipo de retorno');
-  if (LSituacao = RETORNO_PROGRAMADO) and (LDataRetorno <= 0) then
-    raise EAtendimentoValidacao.Create('Informe a data do retorno');
-  if (LSituacao <> RETORNO_PROGRAMADO) and ((LTipo <> '') or (LDataRetorno > 0)) then
-    raise EAtendimentoValidacao.Create(
-      'Tipo e data so podem ser informados para retorno programado');
+  LMotivo := TextoJSON(ADados, 'motivo');
+  LObservacao := TextoJSON(ADados, 'observacao');
+
+  if (LTemRetorno = 1) and (LDataRetorno <= 0) then
+    raise EAtendimentoValidacao.Create('Informe a data do retorno gratuito');
   if (LDataRetorno > 0) and (AConsultaData > 0) and
     (DateOf(LDataRetorno) < DateOf(AConsultaData)) then
     raise EAtendimentoValidacao.Create('A data de retorno nao pode ser anterior a consulta');
 
-  LMotivo := TextoJSON(ADados, 'motivo');
-  LObservacao := TextoJSON(ADados, 'observacao');
+  // Identifica Nova Consulta (longo prazo / CRM)
+  LTemNovaConsulta := 0;
+  if (LSituacao = RETORNO_PROGRAMADO) or (LSituacao = 'nova_consulta') then
+  begin
+    if TemCampoJSON(ADados, 'tem_nova_consulta') then
+    begin
+      if BoolJSON(ADados, 'tem_nova_consulta', False) then
+        LTemNovaConsulta := 1;
+    end
+    else if TextoJSON(ADados, 'nova_consulta_data') <> '' then
+      LTemNovaConsulta := 1;
+  end;
+
+  LNovaConsultaData := DataJSON(ADados, 'nova_consulta_data');
+  LNovaConsultaMotivo := TextoJSON(ADados, 'nova_consulta_motivo');
+  LNovaConsultaObservacao := TextoJSON(ADados, 'nova_consulta_observacao');
+
+  if (LTemNovaConsulta = 1) and (LNovaConsultaData <= 0) then
+    raise EAtendimentoValidacao.Create('Informe a data estipulada para a nova consulta');
+  if (LNovaConsultaData > 0) and (AConsultaData > 0) and
+    (DateOf(LNovaConsultaData) < DateOf(AConsultaData)) then
+    raise EAtendimentoValidacao.Create('A data da nova consulta nao pode ser anterior a consulta');
+
   if Length(LMotivo) > 255 then
     raise EAtendimentoValidacao.Create('O motivo do retorno deve ter no maximo 255 caracteres');
   if Length(LObservacao) > 2000 then
     raise EAtendimentoValidacao.Create('A observacao do retorno deve ter no maximo 2000 caracteres');
+  if Length(LNovaConsultaMotivo) > 255 then
+    raise EAtendimentoValidacao.Create('O motivo da nova consulta deve ter no maximo 255 caracteres');
+  if Length(LNovaConsultaObservacao) > 2000 then
+    raise EAtendimentoValidacao.Create('A observacao da nova consulta deve ter no maximo 2000 caracteres');
 
-  AQuery.Close;
-  AQuery.SQL.Text :=
-    'SELECT RET_ID FROM RETORNOS_CONSULTA WHERE RET_CONSULTA_ID = :CONSULTA_ID';
-  AQuery.ParamByName('CONSULTA_ID').AsInteger := AConsultaId;
-  AQuery.Open;
+  LAgora := Now;
+  LRetorno := TModelRetornoConsulta.Create(TFDConnection(AQuery.Connection));
+  try
+    LRetorno.BuscaPorCampo('RET_CONSULTA_ID', AConsultaId);
+    if LRetorno.Id <= 0 then
+    begin
+      LRetorno.Id := LRetorno.GeraCodigo('RET_ID');
+      LRetorno.ConsultaId := AConsultaId;
+      LRetorno.CriadoPor := AUsuarioId;
+      LRetorno.CriadoEm := LAgora;
+    end;
 
-  if AQuery.IsEmpty then
-  begin
-    AQuery.Close;
-    AQuery.SQL.Text := 'SELECT COALESCE(MAX(RET_ID), 0) + 1 AS NOVO_ID FROM RETORNOS_CONSULTA';
-    AQuery.Open;
-    LRetornoId := AQuery.FieldByName('NOVO_ID').AsInteger;
-    LAgora := Now;
-
-    AQuery.Close;
-    AQuery.SQL.Text :=
-      'INSERT INTO RETORNOS_CONSULTA ' +
-      '(RET_ID, RET_CONSULTA_ID, RET_SITUACAO, RET_TIPO, RET_DATA, RET_MOTIVO, RET_OBSERVACAO, ' +
-      'RET_CRIADO_POR, RET_CRIADO_EM, RET_ATUALIZADO_POR, RET_ATUALIZADO_EM) ' +
-      'VALUES (:ID, :CONSULTA_ID, :SITUACAO, :TIPO, :DATA_RETORNO, :MOTIVO, :OBSERVACAO, ' +
-      ':CRIADO_POR, :CRIADO_EM, :ATUALIZADO_POR, :ATUALIZADO_EM)';
-    AQuery.ParamByName('ID').AsInteger := LRetornoId;
-    AQuery.ParamByName('CONSULTA_ID').AsInteger := AConsultaId;
-    AQuery.ParamByName('SITUACAO').AsString := LSituacao;
-    AQuery.ParamByName('TIPO').AsString := LTipo;
-    if LDataRetorno > 0 then
-      AQuery.ParamByName('DATA_RETORNO').AsDateTime := DateOf(LDataRetorno)
+    LRetorno.Situacao := LSituacao;
+    LRetorno.Tipo := LTipo;
+    if (LTemRetorno = 1) and (LDataRetorno > 0) then
+      LRetorno.DataRetorno := DateOf(LDataRetorno)
     else
-      AQuery.ParamByName('DATA_RETORNO').Clear;
-    AQuery.ParamByName('MOTIVO').AsString := LMotivo;
-    AQuery.ParamByName('OBSERVACAO').AsString := LObservacao;
-    AQuery.ParamByName('CRIADO_POR').AsInteger := AUsuarioId;
-    AQuery.ParamByName('CRIADO_EM').AsDateTime := LAgora;
-    AQuery.ParamByName('ATUALIZADO_POR').AsInteger := AUsuarioId;
-    AQuery.ParamByName('ATUALIZADO_EM').AsDateTime := LAgora;
-    AQuery.ExecSQL;
-  end
-  else
-  begin
-    LRetornoId := AQuery.FieldByName('RET_ID').AsInteger;
-    AQuery.Close;
-    AQuery.SQL.Text :=
-      'UPDATE RETORNOS_CONSULTA SET RET_SITUACAO = :SITUACAO, ' +
-      'RET_TIPO = :TIPO, RET_DATA = :DATA_RETORNO, ' +
-      'RET_MOTIVO = :MOTIVO, RET_OBSERVACAO = :OBSERVACAO, ' +
-      'RET_ATUALIZADO_POR = :ATUALIZADO_POR, RET_ATUALIZADO_EM = :ATUALIZADO_EM ' +
-      'WHERE RET_ID = :ID';
-    AQuery.ParamByName('SITUACAO').AsString := LSituacao;
-    AQuery.ParamByName('TIPO').AsString := LTipo;
-    if LDataRetorno > 0 then
-      AQuery.ParamByName('DATA_RETORNO').AsDateTime := DateOf(LDataRetorno)
+      LRetorno.DataRetorno := 0;
+    LRetorno.Motivo := LMotivo;
+    LRetorno.Observacao := LObservacao;
+
+    LRetorno.TemRetorno := LTemRetorno;
+    LRetorno.TemNovaConsulta := LTemNovaConsulta;
+    if (LTemNovaConsulta = 1) and (LNovaConsultaData > 0) then
+      LRetorno.NovaConsultaData := DateOf(LNovaConsultaData)
     else
-      AQuery.ParamByName('DATA_RETORNO').Clear;
-    AQuery.ParamByName('MOTIVO').AsString := LMotivo;
-    AQuery.ParamByName('OBSERVACAO').AsString := LObservacao;
-    AQuery.ParamByName('ATUALIZADO_POR').AsInteger := AUsuarioId;
-    AQuery.ParamByName('ATUALIZADO_EM').AsDateTime := Now;
-    AQuery.ParamByName('ID').AsInteger := LRetornoId;
-    AQuery.ExecSQL;
+      LRetorno.NovaConsultaData := 0;
+    LRetorno.NovaConsultaMotivo := LNovaConsultaMotivo;
+    LRetorno.NovaConsultaObservacao := LNovaConsultaObservacao;
+
+    LRetorno.AtualizadoPor := AUsuarioId;
+    LRetorno.AtualizadoEm := LAgora;
+
+    LRetorno.SalvaNoBanco(1);
+
+    // Garante que campos de data desmarcados fiquem explicitamente NULL no Firebird
+    if (LTemRetorno = 0) or (LDataRetorno <= 0) then
+    begin
+      AQuery.Close;
+      AQuery.SQL.Text := 'UPDATE RETORNOS_CONSULTA SET RET_DATA = NULL WHERE RET_ID = :ID';
+      AQuery.ParamByName('ID').AsInteger := LRetorno.Id;
+      AQuery.ExecSQL;
+    end;
+
+    if (LTemNovaConsulta = 0) or (LNovaConsultaData <= 0) then
+    begin
+      AQuery.Close;
+      AQuery.SQL.Text := 'UPDATE RETORNOS_CONSULTA SET RET_NOVA_CONSULTA_DATA = NULL WHERE RET_ID = :ID';
+      AQuery.ParamByName('ID').AsInteger := LRetorno.Id;
+      AQuery.ExecSQL;
+    end;
+  finally
+    LRetorno.Free;
   end;
 end;
 

@@ -1,4 +1,4 @@
-<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+﻿<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
     <PropertyGroup>
         <ProjectGuid>{25648CC2-26D5-4720-AC46-928022650866}</ProjectGuid>
         <MainSource>ClinicaOptometria.dpr</MainSource>
@@ -84,18 +84,20 @@
         <VerInfo_Locale>1033</VerInfo_Locale>
         <VerInfo_Keys>CompanyName=;FileDescription=$(MSBuildProjectName);FileVersion=1.0.0.0;InternalName=;LegalCopyright=;LegalTrademarks=;OriginalFilename=;ProductName=$(MSBuildProjectName);ProductVersion=1.0.0.0;Comments=;ProgramID=com.embarcadero.$(MSBuildProjectName)</VerInfo_Keys>
         <Manifest_File>(None)</Manifest_File>
+        <Debugger_IncludeSystemVars>true</Debugger_IncludeSystemVars>
+        <Debugger_EnvVars>CAMINHO_BD=F:\Projetos\centro-visao-optometria\DADOS\PRINCIPAL.FDB;$(Debugger_EnvVars)</Debugger_EnvVars>
     </PropertyGroup>
     <ItemGroup>
         <DelphiCompile Include="$(MainSource)">
             <MainSource>MainSource</MainSource>
         </DelphiCompile>
+        <DCCReference Include="middlewares\Correlation.Middleware.pas"/>
         <DCCReference Include="routes\App.Routes.pas"/>
         <DCCReference Include="database\UnitDatabase.pas"/>
         <DCCReference Include="utils\UnitConstants.pas"/>
         <DCCReference Include="middlewares\Auth.Middleware.pas"/>
         <DCCReference Include="middlewares\Autorizacao.Middleware.pas"/>
         <DCCReference Include="middlewares\SecurityHeaders.Middleware.pas"/>
-        <DCCReference Include="middlewares\Correlation.Middleware.pas"/>
         <DCCReference Include="Controllers\Autorizacao.Controller.pas"/>
         <DCCReference Include="Controllers\Funcionario.Controller.pas"/>
         <DCCReference Include="Controllers\Catalogo.Controller.pas"/>
