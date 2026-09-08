@@ -6,6 +6,7 @@ import Sidebar from './components/Layout/Sidebar';
 import Breadcrumb from './components/Layout/Breadcrumb';
 import { useAuth } from './context/AuthContext';
 import { PERMISSIONS } from './constants/permissions';
+import ToastNotification from './components/Common/ToastNotification';
 
 const LoginPage = lazy(() => import('./components/Auth/LoginPage'));
 const DashboardView = lazy(() => import('./components/Dashboard/DashboardView'));
@@ -171,7 +172,7 @@ function ApplicationShell() {
           setFinanceiroSubTab={setFinanceiroSubTab}
         />
 
-        <main className={`flex-1 transition-all duration-200 p-4 sm:p-6 lg:p-7 max-w-[1640px] mx-auto w-full print:m-0 print:p-0 print:max-w-full print:ml-0 ${sidebarOpen ? 'ml-56' : 'ml-16'}`}>
+        <main className={`flex-1 min-w-0 transition-all duration-200 p-4 sm:p-6 lg:p-7 max-w-[1640px] mx-auto w-full print:m-0 print:p-0 print:max-w-full print:ml-0 ${sidebarOpen ? 'ml-56' : 'ml-16'}`}>
           <Breadcrumb
             activeModule={activeModule}
             setActiveModule={setActiveModule}
@@ -272,10 +273,12 @@ function ApplicationShell() {
       </Suspense>
 
       {toastMessage && (
-        <div className="fixed bottom-5 right-5 z-50 bg-[#02241d]/95 text-white px-4 py-3 rounded-xl border border-forest-600/60 shadow-modal flex items-center space-x-3 text-xs font-semibold backdrop-blur-md animate-fade-in" role="status">
-          <span className="w-2 h-2 rounded-full bg-forest-400 animate-pulse" />
-          <span>{toastMessage}</span>
-        </div>
+        <ToastNotification
+          message={toastMessage}
+          type="success"
+          duration={3500}
+          onClose={() => setToastMessage(null)}
+        />
       )}
     </div>
   );

@@ -1,7 +1,10 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { PlayCircle, PhoneCall, ExternalLink } from 'lucide-react';
+import ToastNotification from '../Common/ToastNotification';
 
 export default function TreinamentoView() {
+  const [toastMessage, setToastMessage] = useState(null);
+
   const videos = [
     { title: "Atendimento completo e emissão de receita de óculos", duration: "08:45", category: "Atendimento" },
     { title: "Preenchimento da Ficha Clínica Optométrica", duration: "12:20", category: "Ficha Clínica" },
@@ -52,7 +55,7 @@ export default function TreinamentoView() {
             <div className="pt-2 border-t border-slate-200 flex items-center justify-between text-xs">
               <span className="text-slate-500 font-mono">Duração: {v.duration}</span>
               <button 
-                onClick={() => alert(`Assistindo: ${v.title}`)}
+                onClick={() => setToastMessage(`Iniciando vídeo: ${v.title}`)}
                 className="font-bold text-orange-600 hover:text-orange-700 uppercase flex items-center space-x-1"
               >
                 <span>Assistir</span>
@@ -62,6 +65,14 @@ export default function TreinamentoView() {
           </div>
         ))}
       </div>
+
+      {toastMessage && (
+        <ToastNotification
+          message={toastMessage}
+          type="success"
+          onClose={() => setToastMessage(null)}
+        />
+      )}
 
     </div>
   );

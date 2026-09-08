@@ -34,8 +34,8 @@ export default function FinanceiroView({ activeSubTab = 'fluxo', setActiveSubTab
 
   // Toast
   const [toastMessage, setToastMessage] = useState(null);
-  const showToast = (msg) => {
-    setToastMessage(msg);
+  const showToast = (msg, type = 'success') => {
+    setToastMessage({ message: msg, type });
     setTimeout(() => setToastMessage(null), 3500);
   };
 
@@ -172,7 +172,7 @@ export default function FinanceiroView({ activeSubTab = 'fluxo', setActiveSubTab
     e.preventDefault();
     const val = parseFloat(receitaForm.totalValue || receitaForm.value) || 0;
     if (val <= 0) {
-      alert("Informe um valor válido para a receita.");
+      showToast("Informe um valor válido para a receita.", "error");
       return;
     }
 
@@ -203,7 +203,7 @@ export default function FinanceiroView({ activeSubTab = 'fluxo', setActiveSubTab
     e.preventDefault();
     const val = parseFloat(despesaForm.value) || 0;
     if (val <= 0) {
-      alert("Informe um valor válido para a despesa.");
+      showToast("Informe um valor válido para a despesa.", "error");
       return;
     }
 
@@ -396,8 +396,8 @@ export default function FinanceiroView({ activeSubTab = 'fluxo', setActiveSubTab
       {/* Floating Toast Notification */}
       {toastMessage && (
         <ToastNotification
-          message={toastMessage}
-          type="success"
+          message={typeof toastMessage === 'string' ? toastMessage : toastMessage.message}
+          type={typeof toastMessage === 'string' ? 'success' : (toastMessage.type || 'success')}
           onClose={() => setToastMessage(null)}
         />
       )}
