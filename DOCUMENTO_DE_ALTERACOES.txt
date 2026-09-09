@@ -1,0 +1,115 @@
+================================================================================
+                    DOCUMENTO DE ALTERAÇÕES DO SISTEMA
+                     Centro Visão Optometria - v1.0
+================================================================================
+
+Este guia resume as alterações realizadas, seguindo a ordem natural de uso
+do sistema para facilitar a sua conferência tela a tela.
+
+--------------------------------------------------------------------------------
+1. DIGITAÇÃO DE GRAUS E EIXOS (Toda a Ficha Clínica)
+--------------------------------------------------------------------------------
+- Passos de 0.25 (Steps): Aumente ou diminua graus de 0.25 em 0.25 pelas setas 
+  do teclado ou pelas setinhas da tela. Sempre com 2 casas decimais (ex: 1.00).
+- Limite de Eixo: Aceita valores de 0° até o limite máximo de 180°.
+
+--------------------------------------------------------------------------------
+2. FICHA CLÍNICA (Na ordem da tela de Atendimento)
+--------------------------------------------------------------------------------
+- Anamnese:
+  * Removido "Vermelhidão" (mantido apenas "Hiperemia", que é o termo técnico).
+  * "Pterígio" removido de Sintomas e mantido apenas em Doenças Oculares.
+  * "Lentes de Contato" agora tem escolha exclusiva de "Sim" ou "Não" em caixa.
+  * "Cefaleia" dividida em fluxo: Região/Localização, Período e Frequência.
+  * Removido o texto introdutório fixo do topo para limpar a tela.
+
+- Prescrição do Último Exame:
+  * O campo Adição agora é único para os dois olhos e já calcula automaticamente 
+    os valores de visão de perto (Longe + Adição).
+
+- Acuidade Visual:
+  * Removido o campo "Visão Habitual".
+
+- Avaliação Motora:
+  * Hirschberg unificado em um único campo comum aos dois olhos.
+  * Adicionado campo de anotações exclusivas para o Motor.
+  * Tabela padronizada com o visual escuro e limpo da RX Final.
+
+- PPC (Ponto Próximo de Convergência):
+  * Adicionado seletor de Olho Dominante (apenas OD ou OE).
+  * Tabela padronizada com a identidade visual da RX Final.
+
+- Retinoscopia, Subjetivo e Afinamento:
+  * Todas as tabelas seguem a mesma identidade visual da RX Final.
+
+- Flexibilidade e Facilidade de Acomodação:
+  * O campo "Adição" foi anexado ao final desta seção. A seção antiga exclusiva 
+    para adição foi removida da ficha.
+
+- Oftalmoscopia:
+  * Adicionado o teste de Amsler (opções "Normal" e "Alterado" para cada olho).
+
+- RX Final:
+  * Adicionado o campo Prisma (Valor e Base) para paridade com a receita.
+
+- Diagnóstico (DX):
+  * Refrativo e Motor agora possuem campos separados para OD e OE, além de 
+    campos de observações clínicas exclusivas.
+  * O campo "Ocular" foi renomeado para "Diagnóstico Patológico".
+
+--------------------------------------------------------------------------------
+3. ABA "PRESCRIÇÃO ÓCULOS" (Ao lado da Ficha Clínica)
+--------------------------------------------------------------------------------
+- Preenchimento Automático: Ao salvar a RX Final, a Prescrição de Óculos é 
+  preenchida e calculada automaticamente (inclusive a visão de perto).
+- Modo Protegido: A aba fica em "somente leitura" para evitar alterações por 
+  engano. Para alterar manualmente, basta clicar em "Editar Prescrição".
+- Botões antigos removidos: Removidos "Nova Prescrição" e "Importar RX Final".
+
+--------------------------------------------------------------------------------
+4. IMPRESSÃO DE DOCUMENTOS
+--------------------------------------------------------------------------------
+- Privacidade (LGPD): O CPF do paciente foi retirado da impressão da receita 
+  de óculos e de outros documentos não-fiscais.
+
+--------------------------------------------------------------------------------
+5. CONCLUIR ATENDIMENTO (Finalização da Consulta)
+--------------------------------------------------------------------------------
+- Retorno vs Nova Consulta:
+  * Retorno Clínico: Atendimento de acompanhamento gratuito (isento R$ 0,00) 
+    com atalhos rápidos de +7, +15 e +30 dias.
+  * Nova Consulta: Previsão de longo prazo para renovação de receita/validade 
+    dos óculos (consulta futura paga), com atalhos de +6 meses, +1 ano e +2 anos.
+  * Alta Clínica: Encerramento sem agendamentos previstos.
+- Visual Limpo: Modal simplificado em 3 abas compactas, sem textos longos, sem 
+  banners desnecessários e sem setas falsas de dropdown.
+- Preenchimento Inteligente: Ao escolher o tipo de retorno ou os atalhos de data, 
+  o sistema já preenche o motivo sugerido, permitindo edição livre.
+
+--------------------------------------------------------------------------------
+6. MENU RELATÓRIOS
+--------------------------------------------------------------------------------
+- Aba Novas Consultas (CRM): Lista pacientes com validade dos óculos a vencer 
+  para captação ativa de nova consulta paga.
+- Aba Agendamentos: Exibe Data e Horário juntos (com busca e exportação em 
+  planilha de ambos).
+- Mensagens de WhatsApp: Texto sem caracteres desconfigurados/mojibake e com 
+  novo botão "Copiar Mensagem".
+- Responsividade: Tabelas e cards ajustados para não quebrar a tela mesmo com 
+  o menu lateral aberto.
+
+--------------------------------------------------------------------------------
+7. MENU CONFIGURAÇÕES (Ficha Clínica)
+--------------------------------------------------------------------------------
+- Ordem das Seções: A reordenação das seções da ficha clínica por arrastar e 
+  soltar agora é refletida com precisão na tela de atendimento.
+
+--------------------------------------------------------------------------------
+8. NOTIFICAÇÕES DO SISTEMA (Toasts)
+--------------------------------------------------------------------------------
+- Canto Superior Direito: Todos os avisos do sistema aparecem no canto superior 
+  direito, sem cobrir botões inferiores.
+- Fechamento Automático: Todas as notificações somem sozinhas em 3,5 segundos.
+- Fim de Telas Bloqueadas: Removidos todos os alertas antigos (alert) que 
+  travavam a tela.
+================================================================================
