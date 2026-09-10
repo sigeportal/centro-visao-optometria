@@ -251,11 +251,15 @@ class function TAutorizacaoService.TemPermissao(AUsuarioId: Integer;
 var
   LPermissoes: TJSONArray;
   I: Integer;
+  LPerfil: string;
 begin
   Result := False;
   if not UsuarioAtivo(AUsuarioId) then
     Exit;
-  LPermissoes := PermissoesDoPerfil(PerfilUsuario(AUsuarioId));
+  LPerfil := PerfilUsuario(AUsuarioId);
+  if LPerfil = PERFIL_ADMIN then
+    Exit(True);
+  LPermissoes := PermissoesDoPerfil(LPerfil);
   try
     for I := 0 to LPermissoes.Count - 1 do
       if SameText(LPermissoes.Items[I].Value, APermissao) then

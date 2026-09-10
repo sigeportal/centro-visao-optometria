@@ -30,6 +30,7 @@ uses
   FichaClinicaDados.Service,
   ConfiguracaoClinica.Service,
   ConfiguracaoClinica.Controller,
+  Consulta.Service,
   Auditoria.Service,
   Auth.Middleware, 
   Auth.Controller;
@@ -52,6 +53,7 @@ begin
   TFichaClinicaService.Inicializar;
   TFichaClinicaDadosService.Inicializar;
   TConfiguracaoClinicaService.Inicializar;
+  TConsultaService.Inicializar;
   THorse.Use(MiddlewareAuth);
 
   THorse.Get('/health',

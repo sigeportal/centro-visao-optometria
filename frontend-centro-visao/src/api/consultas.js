@@ -13,6 +13,11 @@ export async function listarConsultas(options = {}) {
   return Array.isArray(response.data?.data) ? response.data.data : [];
 }
 
+export async function criarConsulta(payload) {
+  const response = await api.post('/v1/consultas', payload);
+  return response.data?.data;
+}
+
 export async function obterConsulta(id, options = {}) {
   const response = await api.get(`/v1/consultas/${id}`, { signal: options.signal });
   return response.data?.data;

@@ -28,6 +28,8 @@ export function adaptConsultation(item) {
     time: formatTime(date),
     finishedAt: parseApiDateTime(item.finalizada_em),
     appointmentId: item.agendamento_id ? String(item.agendamento_id) : null,
+    origem: item.origem || item.origin || '',
+    observacao: item.observacao || item.observacoes || '',
     patientBirthDate: parseApiDateTime(item.paciente_data_nascimento),
     patientSex: item.paciente_sexo || '',
     patientOccupation: item.paciente_ocupacao || '',
