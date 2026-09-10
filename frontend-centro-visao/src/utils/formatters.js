@@ -15,12 +15,60 @@ export function formatCurrency(value) {
  */
 export function formatDate(dateStr) {
   if (!dateStr) return '';
-  if (dateStr.includes('-')) {
-    const parts = dateStr.split('-');
+  const text = String(dateStr).trim();
+  if (!text) return '';
+
+  // Separa data e hora (espaço ou 'T')
+  const datePart = text.split(/[T\s]/)[0];
+
+  // Formato com traço: AAAA-MM-DD ou DD-MM-AAAA
+  if (datePart.includes('-')) {
+    const parts = datePart.split('-');
     if (parts.length === 3) {
-      return `${parts[2]}/${parts[1]}/${parts[0]}`;
+      // YYYY-MM-DD
+      if (parts[0].length === 4) {
+        return `${parts[2].padStart(2, '0')}/${parts[1].padStart(2, '0')}/${parts[0]}`;
+      }
+      // DD-MM-YYYY
+      if (parts[2].length === 4) {
+        return `${parts[0].padStart(2, '0')}/${parts[1].padStart(2, '0')}/${parts[2]}`;
+      }
     }
   }
+
+  // Formato com barra: M/D/YYYY, MM/DD/YYYY, DD/MM/YYYY ou YYYY/MM/DD
+  if (datePart.includes('/')) {
+    const parts = datePart.split('/');
+    if (parts.length === 3) {
+      // YYYY/MM/DD
+      if (parts[0].length === 4) {
+        return `${parts[2].padStart(2, '0')}/${parts[1].padStart(2, '0')}/${parts[0]}`;
+      }
+      // Se o ano estiver no último bloco (YYYY)
+      if (parts[2].length === 4) {
+        const p0 = parseInt(parts[0], 10);
+        const p1 = parseInt(parts[1], 10);
+        // Se a primeira parte for maior que 12, com certeza é DD/MM/YYYY
+        if (p0 > 12) {
+          return `${parts[0].padStart(2, '0')}/${parts[1].padStart(2, '0')}/${parts[2]}`;
+        }
+        // Se a segunda parte for maior que 12, com certeza é MM/DD/YYYY (formato americano)
+        if (p1 > 12) {
+          return `${parts[1].padStart(2, '0')}/${parts[0].padStart(2, '0')}/${parts[2]}`;
+        }
+        // Se partes vierem do Delphi/Windows (ex: 8/2/2026 sem zeros à esquerda ou padrão M/D/YYYY)
+        // Quando p0 e p1 <= 12: se p0 e p1 já têm 2 dígitos e vierem de um input brasileiro já formatado,
+        // manter como DD/MM/YYYY se parts[0].length === 2 && parts[1].length === 2; senão tratar M/D/YYYY
+        if (parts[0].length === 1 && parts[1].length <= 2) {
+          // Ex: 8/2/2026 ou 4/5/2026 -> vem no padrão M/D/YYYY do Delphi
+          return `${parts[1].padStart(2, '0')}/${parts[0].padStart(2, '0')}/${parts[2]}`;
+        }
+        // Fallback seguro: DD/MM/YYYY
+        return `${parts[0].padStart(2, '0')}/${parts[1].padStart(2, '0')}/${parts[2]}`;
+      }
+    }
+  }
+
   return dateStr;
 }
 

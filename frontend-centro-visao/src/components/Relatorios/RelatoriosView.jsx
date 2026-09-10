@@ -719,11 +719,14 @@ export default function RelatoriosView({ setActiveModule }) {
                                 setActionMenu(null);
                               } else {
                                 const rect = e.currentTarget.getBoundingClientRect();
+                                const estimatedHeight = 150;
+                                const openUpwards = window.innerHeight - rect.bottom < estimatedHeight && rect.top > estimatedHeight;
                                 setActionMenu({
                                   id: item.id,
                                   item,
                                   type: 'retorno',
-                                  top: rect.bottom + 6,
+                                  top: openUpwards ? undefined : rect.bottom + 6,
+                                  bottom: openUpwards ? (window.innerHeight - rect.top + 6) : undefined,
                                   right: Math.max(12, window.innerWidth - rect.right),
                                 });
                               }
@@ -933,11 +936,14 @@ export default function RelatoriosView({ setActiveModule }) {
                                 setActionMenu(null);
                               } else {
                                 const rect = e.currentTarget.getBoundingClientRect();
+                                const estimatedHeight = 150;
+                                const openUpwards = window.innerHeight - rect.bottom < estimatedHeight && rect.top > estimatedHeight;
                                 setActionMenu({
                                   id: `nc-${item.id}`,
                                   item,
                                   type: 'nova_consulta',
-                                  top: rect.bottom + 6,
+                                  top: openUpwards ? undefined : rect.bottom + 6,
+                                  bottom: openUpwards ? (window.innerHeight - rect.top + 6) : undefined,
                                   right: Math.max(12, window.innerWidth - rect.right),
                                 });
                               }
@@ -1506,7 +1512,9 @@ export default function RelatoriosView({ setActiveModule }) {
         <div
           style={{
             position: 'fixed',
-            top: `${actionMenu.top}px`,
+            ...(actionMenu.bottom !== undefined
+              ? { bottom: `${actionMenu.bottom}px` }
+              : { top: `${actionMenu.top}px` }),
             right: `${actionMenu.right}px`,
           }}
           onClick={(e) => e.stopPropagation()}

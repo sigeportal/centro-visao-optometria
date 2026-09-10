@@ -18,6 +18,10 @@ type
     FStatus: string;
     FData: TDateTime;
     FFinalizadaEm: TDateTime;
+    FOrigem: string;
+    FCriadoEm: TDateTime;
+    FCriadoPor: Integer;
+    FObservacoes: string;
   public
     [TCampo('CON_ID', 'INTEGER NOT NULL PRIMARY KEY')]
     property Id: Integer read FId write FId;
@@ -42,6 +46,18 @@ type
 
     [TCampo('CON_FINALIZADA_EM', 'TIMESTAMP')]
     property FinalizadaEm: TDateTime read FFinalizadaEm write FFinalizadaEm;
+
+    [TCampo('CON_ORIGEM', 'VARCHAR(30)')]
+    property Origem: string read FOrigem write FOrigem;
+
+    [TCampo('CON_CRIADO_EM', 'TIMESTAMP')]
+    property CriadoEm: TDateTime read FCriadoEm write FCriadoEm;
+
+    [TCampo('CON_CRIADO_POR', 'INTEGER')]
+    property CriadoPor: Integer read FCriadoPor write FCriadoPor;
+
+    [TCampo('CON_OBSERVACOES', 'VARCHAR(500)')]
+    property Observacoes: string read FObservacoes write FObservacoes;
   end;
 
 implementation

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { 
   AlertCircle,
   User, 
@@ -16,6 +16,12 @@ import {
 import { useParams } from 'react-router-dom';
 import { formatCPF, formatPhone } from '../../utils/formatters';
 import { atualizarPaciente, obterPaciente } from '../../api/pacientes';
+import {
+  criarAgendamento,
+  listarProfissionais,
+  listarProcedimentosAgenda,
+  listarParceriasAgenda,
+} from '../../api/agenda';
 import { adaptPatient, calculateAge, patientPayload } from '../../domain/pacientes';
 
 import DadosPessoaisTab from './components/DadosPessoaisTab';
@@ -23,6 +29,7 @@ import HistoricoConsultasTab from './components/HistoricoConsultasTab';
 import RetornosPacienteTab from './components/RetornosPacienteTab';
 import AnamnesesPacienteTab from './components/AnamnesesPacienteTab';
 import DocumentosPacienteTab from './components/DocumentosPacienteTab';
+import NovoAgendamentoModal from '../Agenda/NovoAgendamentoModal';
 import ToastNotification from '../Common/ToastNotification';
 
 const EMPTY_FORM = {
@@ -45,9 +52,54 @@ export default function PacienteHistoricoView({
   const [loadingPatient, setLoadingPatient] = useState(true);
   const [patientError, setPatientError] = useState('');
 
+  const [professionals, setProfessionals] = useState([]);
+  const [procedures, setProcedures] = useState([]);
+  const [partnerships, setPartnerships] = useState([]);
+  const [isAppointmentModalOpen, setIsAppointmentModalOpen] = useState(false);
+
   const showToast = (message, type = 'success') => {
     setToast({ message, type });
     setTimeout(() => setToast(null), 3500);
+  };
+
+  useEffect(() => {
+    const controller = new AbortController();
+    Promise.all([
+      listarProfissionais({ signal: controller.signal }),
+      listarProcedimentosAgenda({ signal: controller.signal }),
+      listarParceriasAgenda({ signal: controller.signal }),
+    ])
+      .then(([profData, procData, partData]) => {
+        if (!controller.signal.aborted) {
+          setProfessionals((profData || []).map((p) => ({
+            id: String(p.id),
+            name: p.name || p.nome || 'Profissional sem nome',
+          })));
+          setProcedures(Array.isArray(procData) ? procData : []);
+          setPartnerships(Array.isArray(partData) ? partData : []);
+        }
+      })
+      .catch((error) => {
+        if (error?.code !== 'ERR_CANCELED') {
+          // Silencioso em caso de erro secundário
+        }
+      });
+    return () => controller.abort();
+  }, []);
+
+  const handleSaveAppointment = async (payload) => {
+    try {
+      await criarAgendamento(payload);
+      setIsAppointmentModalOpen(false);
+      showToast(`Agendamento cadastrado com sucesso para ${patient.name}!`);
+    } catch (error) {
+      const message = error?.response?.data?.error?.message
+        || error?.response?.data?.message
+        || error?.message
+        || 'Não foi possível cadastrar o agendamento.';
+      showToast(message, 'error');
+      throw error;
+    }
   };
 
   useEffect(() => {
@@ -187,7 +239,7 @@ export default function PacienteHistoricoView({
 
         <button
           type="button"
-          onClick={() => setActiveModule('agenda')}
+          onClick={() => setIsAppointmentModalOpen(true)}
           className="h-10 btn-primary px-4 self-start md:self-auto"
         >
           <Calendar className="w-4 h-4" aria-hidden="true" />
@@ -259,6 +311,23 @@ export default function PacienteHistoricoView({
           message={toast.message}
           type={toast.type}
           onClose={() => setToast(null)}
+        />
+      )}
+
+      {patient && (
+        <NovoAgendamentoModal
+          isOpen={isAppointmentModalOpen}
+          onClose={() => setIsAppointmentModalOpen(false)}
+          initialData={{
+            patientId: patient.id,
+            patient: patient.name,
+            phone: patient.phone,
+            lockPatient: true,
+          }}
+          professionals={professionals}
+          procedures={procedures}
+          partnerships={partnerships}
+          onSave={handleSaveAppointment}
         />
       )}
 

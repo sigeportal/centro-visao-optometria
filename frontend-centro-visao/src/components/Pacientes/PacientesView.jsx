@@ -1,14 +1,23 @@
 import { useEffect, useState } from 'react';
-import { AlertCircle, ChevronLeft, ChevronRight, Loader2, Plus, Search, Users } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { AlertCircle, ChevronLeft, ChevronRight, History, Loader2, Plus, Search, Users } from 'lucide-react';
 import { listarPacientes } from '../../api/pacientes';
 import { adaptPatient } from '../../domain/pacientes';
 import { formatCPF, formatPhone } from '../../utils/formatters';
+import { useAuth } from '../../context/AuthContext';
+import { PERMISSIONS } from '../../constants/permissions';
+import RegistrarConsultaRetroativaModal from './components/RegistrarConsultaRetroativaModal';
+import ToastNotification from '../Common/ToastNotification';
 
 function errorMessage(error) {
   return error?.response?.data?.error?.message || error?.message || 'Não foi possível carregar os pacientes.';
 }
 
 export default function PacientesView({ openNovoPaciente, setSelectedPatient, setActiveModule }) {
+  const navigate = useNavigate();
+  const { can } = useAuth();
+  const canRegisterRetroactive = can(PERMISSIONS.CLINICAL_EDIT);
+
   const [searchTerm, setSearchTerm] = useState('');
   const [patients, setPatients] = useState([]);
   const [page, setPage] = useState(1);
@@ -16,8 +25,37 @@ export default function PacientesView({ openNovoPaciente, setSelectedPatient, se
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [refreshKey, setRefreshKey] = useState(0);
+  const [retroPatient, setRetroPatient] = useState(null);
+  const [toast, setToast] = useState(null);
   const limit = 10;
   const totalPages = Math.max(1, Math.ceil(total / limit));
+
+  const showToast = (message, type = 'success') => {
+    setToast({ message, type });
+    setTimeout(() => setToast(null), 4000);
+  };
+
+  const handleRetroactiveSaved = (novaConsulta, { openClinical }) => {
+    const patientName = retroPatient?.name || 'o paciente';
+    const savedPatient = retroPatient;
+    setRetroPatient(null);
+
+    showToast(
+      openClinical
+        ? 'Consulta retroativa criada com sucesso! Redirecionando para a ficha clínica...'
+        : `Consulta retroativa registrada com sucesso para ${patientName}!`,
+      'success'
+    );
+
+    if (openClinical && novaConsulta?.id) {
+      if (setSelectedPatient && savedPatient) {
+        setSelectedPatient(savedPatient);
+      }
+      navigate(`/consultas/${novaConsulta.id}`, {
+        state: { returnTo: '/pacientes' },
+      });
+    }
+  };
 
   useEffect(() => {
     const controller = new AbortController();
@@ -132,11 +170,22 @@ export default function PacientesView({ openNovoPaciente, setSelectedPatient, se
                   )}
                 </td>
                 <td className="py-3.5 px-4 text-right">
-                  <div className="flex items-center justify-end">
+                  <div className="flex items-center justify-end gap-2">
+                    {canRegisterRetroactive && (
+                      <button
+                        type="button"
+                        onClick={() => setRetroPatient(patient)}
+                        className="btn-secondary py-1.5 px-2.5 text-xs inline-flex items-center gap-1.5 text-forest-800 hover:text-forest-900 hover:bg-forest-50 border-forest-200/80 transition-colors shadow-hairline whitespace-nowrap"
+                        title="Lançar consulta retroativa para este paciente"
+                      >
+                        <History className="w-3.5 h-3.5 text-forest-700 shrink-0" />
+                        <span>Lançar Consulta Retroativa</span>
+                      </button>
+                    )}
                     <button
                       type="button"
                       onClick={() => { setSelectedPatient(patient); setActiveModule('paciente-detalhe'); }}
-                      className="btn-secondary py-1.5 px-3 text-xs"
+                      className="btn-secondary py-1.5 px-3 text-xs shadow-hairline whitespace-nowrap"
                     >
                       Abrir prontuário
                     </button>
@@ -184,6 +233,25 @@ export default function PacientesView({ openNovoPaciente, setSelectedPatient, se
             <ChevronRight className="w-4 h-4" />
           </button>
         </div>
+      )}
+
+      {/* Modal de Lançamento de Consulta Retroativa */}
+      {retroPatient && (
+        <RegistrarConsultaRetroativaModal
+          isOpen={Boolean(retroPatient)}
+          onClose={() => setRetroPatient(null)}
+          patient={retroPatient}
+          onSaved={handleRetroactiveSaved}
+        />
+      )}
+
+      {/* Toast Notification */}
+      {toast && (
+        <ToastNotification
+          message={toast.message}
+          type={toast.type}
+          onClose={() => setToast(null)}
+        />
       )}
     </div>
   );

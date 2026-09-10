@@ -77,8 +77,7 @@ begin
         begin
           LChave := Trim(Copy(LLinha, 1, LPos - 1));
           LValor := Trim(Copy(LLinha, LPos + 1, MaxInt));
-          if GetEnvironmentVariable(LChave).IsEmpty then
-            SetEnvironmentVariable(PChar(LChave), PChar(LValor));
+          SetEnvironmentVariable(PChar(LChave), PChar(LValor));
         end;
       end;
     finally

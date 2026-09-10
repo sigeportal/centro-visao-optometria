@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { AlertCircle, ChevronRight, Clock, Loader2, RefreshCw, Search, Stethoscope } from 'lucide-react';
+import { AlertCircle, ChevronRight, Clock, History, Loader2, Plus, RefreshCw, Search, Stethoscope } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { listarConsultasPaciente } from '../../../api/pacientes';
 import { adaptConsultation, isConsultationFinished } from '../../../domain/consultas';
 import { useAuth } from '../../../context/AuthContext';
 import { PERMISSIONS } from '../../../constants/permissions';
+import RegistrarConsultaRetroativaModal from './RegistrarConsultaRetroativaModal';
+import ToastNotification from '../../Common/ToastNotification';
 
 function errorMessage(error) {
   return error?.response?.data?.error?.message || error?.message || 'Não foi possível carregar as consultas.';
@@ -18,12 +20,39 @@ export default function HistoricoConsultasTab({ patient }) {
   const navigate = useNavigate();
   const { can } = useAuth();
   const canOpenClinical = can(PERMISSIONS.CLINICAL_VIEW);
+  const canEditClinical = can(PERMISSIONS.CLINICAL_EDIT);
+  const canRegisterRetroactive = canEditClinical;
+
   const [consultations, setConsultations] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [filter, setFilter] = useState('todas');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [refreshKey, setRefreshKey] = useState(0);
+  const [isRetroModalOpen, setIsRetroModalOpen] = useState(false);
+  const [toast, setToast] = useState(null);
+
+  const showToast = (message, type = 'success') => {
+    setToast({ message, type });
+    setTimeout(() => setToast(null), 4000);
+  };
+
+  const handleRetroactiveSaved = (novaConsulta, { openClinical }) => {
+    showToast(
+      openClinical
+        ? 'Consulta retroativa criada com sucesso! Redirecionando para a ficha clínica...'
+        : 'Consulta retroativa registrada com sucesso no prontuário.',
+      'success'
+    );
+
+    if (openClinical && novaConsulta?.id) {
+      navigate(`/consultas/${novaConsulta.id}`, {
+        state: { returnTo: `/pacientes/${patient?.id}` },
+      });
+    } else {
+      setRefreshKey((v) => v + 1);
+    }
+  };
 
   const loadConsultations = useCallback(async (signal) => {
     setLoading(true);
@@ -68,21 +97,34 @@ export default function HistoricoConsultasTab({ patient }) {
 
   return (
     <div className="space-y-4 animate-fade-in text-xs">
-      <div className="clinical-panel p-4 sm:p-5 flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+      <div className="clinical-panel p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
           <h3 className="font-bold text-sm text-slate-900 tracking-tight">Consultas do Paciente</h3>
           <p className="text-[11px] text-slate-400 mt-0.5">Histórico de atendimentos optométricos e fichas clínicas.</p>
         </div>
-        <button
-          type="button"
-          onClick={() => setRefreshKey((value) => value + 1)}
-          disabled={loading}
-          className="w-10 h-10 bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 rounded-xl flex items-center justify-center disabled:cursor-wait disabled:text-slate-400 transition-colors shadow-hairline"
-          title="Atualizar consultas"
-          aria-label="Atualizar consultas"
-        >
-          <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin text-forest-700' : ''}`} />
-        </button>
+        <div className="flex items-center gap-2">
+          {canRegisterRetroactive && (
+            <button
+              type="button"
+              onClick={() => setIsRetroModalOpen(true)}
+              className="btn-primary py-2 px-3.5 text-xs inline-flex items-center gap-1.5 shadow-hairline whitespace-nowrap"
+              title="Lançar consulta retroativa a partir de prontuário físico antigo"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>Lançar Consulta Retroativa</span>
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => setRefreshKey((value) => value + 1)}
+            disabled={loading}
+            className="w-10 h-10 bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 rounded-xl flex items-center justify-center disabled:cursor-wait disabled:text-slate-400 transition-colors shadow-hairline shrink-0"
+            title="Atualizar consultas"
+            aria-label="Atualizar consultas"
+          >
+            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin text-forest-700' : ''}`} />
+          </button>
+        </div>
       </div>
 
       <div className="clinical-panel p-3.5 flex flex-col lg:flex-row lg:items-center justify-between gap-3">
@@ -145,6 +187,11 @@ export default function HistoricoConsultasTab({ patient }) {
           <tbody className="divide-y divide-slate-100 text-xs">
             {!loading && filteredConsultations.map((consultation) => {
               const finished = isConsultationFinished(consultation.statusCode);
+              const isRetroactive =
+                consultation.origem === 'retroativa' ||
+                consultation.origin === 'retroativa' ||
+                !consultation.appointmentId;
+
               return (
                 <tr key={consultation.id} className="hover:bg-forest-50/20 transition-colors">
                   <td className="py-3.5 px-4 font-mono font-bold text-slate-400">#{consultation.id}</td>
@@ -155,7 +202,20 @@ export default function HistoricoConsultasTab({ patient }) {
                     </span>
                   </td>
                   <td className="py-3.5 px-4 text-slate-800 font-semibold">{consultation.doctor}</td>
-                  <td className="py-3.5 px-4 text-slate-600 font-medium">{consultation.procedure}</td>
+                  <td className="py-3.5 px-4 text-slate-600 font-medium">
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <span>{consultation.procedure}</span>
+                      {isRetroactive && (
+                        <span
+                          className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-amber-50 text-amber-800 border border-amber-200/80 shadow-xs cursor-help select-none"
+                          title="Consulta retroativa inserida via migração de prontuário físico (auditado pela LGPD)"
+                        >
+                          <History className="w-2.5 h-2.5 text-amber-600 shrink-0" />
+                          Histórico
+                        </span>
+                      )}
+                    </div>
+                  </td>
                   <td className="py-3.5 px-4 text-center">
                     <span className={finished ? 'badge-finished' : 'badge-waiting'}>
                       {consultation.status}
@@ -191,6 +251,23 @@ export default function HistoricoConsultasTab({ patient }) {
           </div>
         )}
       </div>
+
+      {/* Modal de Registro de Consulta Retroativa */}
+      <RegistrarConsultaRetroativaModal
+        isOpen={isRetroModalOpen}
+        onClose={() => setIsRetroModalOpen(false)}
+        patient={patient}
+        onSaved={handleRetroactiveSaved}
+      />
+
+      {/* Notificação Toast */}
+      {toast && (
+        <ToastNotification
+          message={toast.message}
+          type={toast.type}
+          onClose={() => setToast(null)}
+        />
+      )}
     </div>
   );
 }
