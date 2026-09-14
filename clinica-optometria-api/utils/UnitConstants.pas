@@ -41,8 +41,11 @@ implementation
 
 uses
   System.StrUtils,
-  System.Classes,
-  Winapi.Windows;
+  System.Classes
+  {$IFDEF WIN32}
+  ,Winapi.Windows
+  {$ENDIF}
+  ;
 
 class procedure TConstants.CarregarArquivoEnv(const ACaminho: string);
 var
@@ -77,7 +80,9 @@ begin
         begin
           LChave := Trim(Copy(LLinha, 1, LPos - 1));
           LValor := Trim(Copy(LLinha, LPos + 1, MaxInt));
-          SetEnvironmentVariable(PChar(LChave), PChar(LValor));
+          {$IFDEF WIN32}
+  				SetEnvironmentVariable(PChar(LChave), PChar(LValor));
+          {$ENDIF}
         end;
       end;
     finally
