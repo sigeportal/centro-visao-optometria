@@ -299,7 +299,7 @@ export default function RelatoriosView({ setActiveModule }) {
       description: 'Revisão periódica e validade dos óculos',
       icon: PhoneCall, 
       count: newConsultations.length,
-      badgeColor: 'bg-blue-100 text-blue-900 border-blue-300'
+      badgeColor: 'bg-forest-100 text-forest-900 border-forest-300'
     },
     { 
       id: 'agendamentos', 
@@ -651,24 +651,23 @@ export default function RelatoriosView({ setActiveModule }) {
             </div>
 
             <div className="overflow-x-auto w-full">
-              <table className="clinical-table min-w-[980px] w-full">
+              <table className="clinical-table w-full">
                 <thead>
                   <tr>
-                    <th className="w-16">Cód</th>
-                    <th className="min-w-[220px]">Paciente / Contato</th>
+                    <th className="w-14">Cód</th>
+                    <th className="min-w-[190px]">Paciente / Contato</th>
                     <th className="w-28 whitespace-nowrap">Consulta Origem</th>
                     <th className="w-28 whitespace-nowrap">Data Prevista</th>
-                    <th className="w-32 whitespace-nowrap">Tipo de Retorno</th>
-                    <th className="min-w-[200px]">Conduta / Motivo</th>
-                    <th className="w-36 whitespace-nowrap">Profissional</th>
-                    <th className="w-36 text-center whitespace-nowrap">Situação</th>
-                    <th className="w-16 text-right whitespace-nowrap">Ações</th>
+                    <th>Conduta / Motivo</th>
+                    <th className="w-32 whitespace-nowrap">Profissional</th>
+                    <th className="w-28 text-center whitespace-nowrap">Situação</th>
+                    <th className="w-12 text-right whitespace-nowrap">Ações</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {filteredReturns.length === 0 ? (
                     <tr>
-                      <td colSpan={9} className="py-8 text-center text-slate-400">
+                      <td colSpan={8} className="py-8 text-center text-slate-400">
                         Nenhum retorno encontrado com os filtros selecionados.
                       </td>
                     </tr>
@@ -691,11 +690,6 @@ export default function RelatoriosView({ setActiveModule }) {
                         </td>
                         <td className="font-mono font-bold text-forest-900 whitespace-nowrap">
                           {formatReportDate(item.returnDate)}
-                        </td>
-                        <td>
-                          <span className="font-semibold text-slate-700 bg-slate-100 px-2 py-0.5 rounded-md border border-slate-200 text-[10.5px] whitespace-nowrap">
-                            {item.returnType}
-                          </span>
                         </td>
                         <td>
                           <div className="text-slate-600 line-clamp-2 max-w-sm" title={item.reason}>
@@ -770,8 +764,8 @@ export default function RelatoriosView({ setActiveModule }) {
                 </span>
                 <span className="text-[10px] text-slate-400 block truncate">Revisões estipuladas</span>
               </div>
-              <div className="w-10 h-10 rounded-xl bg-blue-50 text-blue-800 flex items-center justify-center border border-blue-200/60 shrink-0">
-                <PhoneCall className="w-5 h-5" />
+              <div className="w-10 h-10 rounded-xl bg-forest-50 text-forest-800 flex items-center justify-center border border-forest-200/60 shrink-0">
+                <PhoneCall className="w-5 h-5 text-forest-700" />
               </div>
             </div>
 
@@ -863,7 +857,7 @@ export default function RelatoriosView({ setActiveModule }) {
           <div className="clinical-panel overflow-hidden">
             <div className="clinical-section-header">
               <div className="flex items-center space-x-2">
-                <PhoneCall className="w-4 h-4 text-blue-700 shrink-0" />
+                <PhoneCall className="w-4 h-4 text-forest-800 shrink-0" />
                 <h3 className="font-bold text-slate-900">
                   Pacientes com Previsão de Nova Consulta (CRM)
                 </h3>
@@ -874,7 +868,7 @@ export default function RelatoriosView({ setActiveModule }) {
             </div>
 
             <div className="overflow-x-auto w-full">
-              <table className="clinical-table min-w-[980px] w-full">
+              <table className="clinical-table w-full">
                 <thead>
                   <tr>
                     <th className="w-16">Cód</th>
@@ -911,7 +905,7 @@ export default function RelatoriosView({ setActiveModule }) {
                         <td className="font-mono text-slate-600 whitespace-nowrap">
                           {formatReportDate(item.consultationDate)}
                         </td>
-                        <td className="font-mono font-bold text-blue-900 whitespace-nowrap">
+                        <td className="font-mono font-bold text-forest-900 whitespace-nowrap">
                           {formatReportDate(item.estimatedDate)}
                         </td>
                         <td>
@@ -1372,7 +1366,7 @@ export default function RelatoriosView({ setActiveModule }) {
                       <td className="py-1.5 px-2 border-r border-slate-200 font-mono whitespace-nowrap text-slate-700">
                         {formatReportDate(r.consultationDate)}
                       </td>
-                      <td className="py-1.5 px-2 border-r border-slate-300 font-mono font-extrabold text-blue-900 text-center whitespace-nowrap text-[10px]">
+                      <td className="py-1.5 px-2 border-r border-slate-300 font-mono font-extrabold text-forest-900 text-center whitespace-nowrap text-[10px]">
                         {formatReportDate(r.estimatedDate)}
                       </td>
                       <td className="py-1.5 px-2 border-r border-slate-200 text-slate-700">
