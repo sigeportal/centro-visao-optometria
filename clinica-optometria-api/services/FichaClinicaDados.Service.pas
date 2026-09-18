@@ -59,7 +59,7 @@ begin
   else if ASecao = 'forometria' then
     LCampos := 'ppc,reflexos_pupilares,cover_test,rfp,rfn,flexibilidade_monocular,ac_a,estereopsia,visao_cromatica,observacoes'
   else if ASecao = 'oftalmoscopia' then
-    LCampos := 'tecnica,od,oe,observacoes'
+    LCampos := 'tecnica,od,oe,observacoes,estereopsia,visao_cromatica,visaocromatica'
   else if (ASecao = 'retinoscopia_dinamica') or
     (ASecao = 'retinoscopia_estatica') then
     LCampos := 'od,oe,observacoes'

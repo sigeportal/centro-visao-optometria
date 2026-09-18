@@ -32,6 +32,7 @@ function dateInput(value) {
 }
 
 function formatDate(value) {
+  if (value instanceof Date) return value.toLocaleDateString('pt-BR');
   const iso = dateInput(value);
   if (!iso) return value ? String(value) : 'Data não informada';
   const [year, month, day] = iso.split('-');
@@ -99,7 +100,8 @@ function escapeHtml(value) {
     .replaceAll('"', '&quot;').replaceAll("'", '&#039;');
 }
 
-function generatePrescriptionHtml(form, consultation, clinicInfo) {
+function generatePrescriptionHtml(form, consultation, clinicInfo, item = {}) {
+  const isRetroactive = consultation?.isRetroactive || consultation?.origem === 'retroativa';
   const cell = (value, fallback = '—') => escapeHtml(String(value || '').trim() || fallback);
   const observations = escapeHtml(form?.observacoes || '').replaceAll('\n', '<br>');
   const isNearMode = form?.modo === 'longe_perto';
@@ -235,6 +237,7 @@ function generatePrescriptionHtml(form, consultation, clinicInfo) {
     <div style="margin-top: 48px; display: flex; align-items: flex-end; justify-content: space-between; font-size: 10px;">
       <div style="color: #64748b;">
         <div>Validade desta prescrição: 12 meses a contar da data de emissão.</div>
+        ${isRetroactive ? `<div style="color: #475569; font-weight: 600; margin-top: 2px;">• Prescrição vinculada a consulta retroativa realizada em ${formatDate(consultation?.date || item.data)}${(consultation?.createdAt || item.criado_em) && formatDate(consultation?.createdAt || item.criado_em) !== formatDate(consultation?.date || item.data) ? ` (registro incluído no sistema em ${formatDate(consultation?.createdAt || item.criado_em)})` : ''}.</div>` : ''}
         <div style="margin-top: 2px;">Prescrição emitida via sistema eletrônico Centro Visão.</div>
       </div>
       <div style="text-align: center; width: 240px;">
@@ -422,7 +425,8 @@ export default function PrescricaoOculosTab({ consultation, disabled = false, on
     if (printingId) return;
     setPrintingId(editingId || 'current');
     try {
-      const html = generatePrescriptionHtml(form, consultation, clinicInfo);
+      const currentItem = items.find((it) => String(it.id) === String(editingId)) || {};
+      const html = generatePrescriptionHtml(form, consultation, clinicInfo, currentItem);
       printViaIframe(html);
     } catch (error) {
       onNotify?.('error', 'Não foi possível preparar a impressão.');
@@ -436,7 +440,7 @@ export default function PrescricaoOculosTab({ consultation, disabled = false, on
     setPrintingId(item.id);
     try {
       const formItem = toForm(item);
-      const html = generatePrescriptionHtml(formItem, consultation, clinicInfo);
+      const html = generatePrescriptionHtml(formItem, consultation, clinicInfo, item);
       printViaIframe(html);
     } catch (error) {
       onNotify?.('error', 'Não foi possível preparar a impressão.');
@@ -659,7 +663,7 @@ export default function PrescricaoOculosTab({ consultation, disabled = false, on
                         #{item.id} · {item.titulo || EMPTY_FORM.titulo}
                       </div>
                       <div className="mt-0.5 text-[10.5px] text-slate-400">
-                        Emitida em {formatDate(item.data)}
+                        <span>Emitida em {formatDate(item.data)}</span>
                       </div>
                     </div>
                     <div className="flex gap-2">

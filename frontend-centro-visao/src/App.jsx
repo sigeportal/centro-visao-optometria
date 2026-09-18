@@ -7,6 +7,7 @@ import Breadcrumb from './components/Layout/Breadcrumb';
 import { useAuth } from './context/AuthContext';
 import { PERMISSIONS } from './constants/permissions';
 import ToastNotification from './components/Common/ToastNotification';
+import ErrorBoundary from './components/Common/ErrorBoundary';
 
 const LoginPage = lazy(() => import('./components/Auth/LoginPage'));
 const DashboardView = lazy(() => import('./components/Dashboard/DashboardView'));
@@ -184,82 +185,84 @@ function ApplicationShell() {
           />
 
           <Suspense fallback={<LoadingScreen label="Carregando módulo..." />}>
-            <Routes>
-              <Route path="/" element={(
-                <PermissionRoute permissions={PERMISSIONS.DASHBOARD_VIEW}>
-                  <DashboardView
-                    setActiveModule={setActiveModule}
-                    openNovoAgendamento={() => setActiveModule('agenda')}
-                    openNovoPaciente={() => setNovoPacienteOpen(true)}
-                  />
-                </PermissionRoute>
-              )} />
-              <Route path="/agenda" element={(
-                <PermissionRoute permissions={PERMISSIONS.AGENDA_VIEW}>
-                  <AgendaView
-                    setActiveModule={setActiveModule}
-                  />
-                </PermissionRoute>
-              )} />
-              <Route path="/fila-espera" element={(
-                <PermissionRoute permissions={PERMISSIONS.AGENDA_VIEW}>
-                  <FilaEsperaView
-                    setActiveModule={setActiveModule}
-                    openNovoAgendamento={() => setActiveModule('agenda')}
-                  />
-                </PermissionRoute>
-              )} />
-              <Route path="/pacientes" element={(
-                <PermissionRoute permissions={PERMISSIONS.PATIENT_VIEW}>
-                  <PacientesView
-                    openNovoPaciente={() => setNovoPacienteOpen(true)}
-                    setSelectedPatient={selectPatient}
-                    setActiveModule={setActiveModule}
-                  />
-                </PermissionRoute>
-              )} />
-              <Route path="/pacientes/:patientId" element={(
-                <PermissionRoute permissions={PERMISSIONS.PATIENT_VIEW}>
-                  <PacienteHistoricoView
-                    patient={selectedPatient}
-                    initialTab={patientActiveTab}
-                    setActiveModule={setActiveModule}
-                    onSavePatient={handleUpdatePatient}
-                  />
-                </PermissionRoute>
-              )} />
-              <Route path="/consultas" element={(
-                <PermissionRoute permissions={PERMISSIONS.CONSULTATION_SUMMARY}>
-                  <WorkspaceAtendimento
-                    patient={selectedPatient}
-                    setActiveModule={setActiveModule}
-                    onViewProfile={() => handleOpenPatientDetails('pessoais')}
-                    onViewHistory={() => handleOpenPatientDetails('consultas')}
-                  />
-                </PermissionRoute>
-              )} />
-              <Route path="/consultas/:consultationId" element={(
-                <PermissionRoute permissions={PERMISSIONS.CONSULTATION_SUMMARY}>
-                  <WorkspaceAtendimento />
-                </PermissionRoute>
-              )} />
-              <Route path="/financeiro" element={(
-                <Navigate to="/" replace />
-              )} />
-              <Route path="/relatorios" element={(
-                <PermissionRoute permissions={[PERMISSIONS.DASHBOARD_VIEW, PERMISSIONS.CONSULTATION_SUMMARY, PERMISSIONS.PATIENT_VIEW, PERMISSIONS.AGENDA_VIEW]}>
-                  <RelatoriosView
-                    setActiveModule={setActiveModule}
-                  />
-                </PermissionRoute>
-              )} />
-              <Route path="/configuracoes" element={(
-                <PermissionRoute permissions={[PERMISSIONS.SYSTEM_ADMIN, PERMISSIONS.CLINICAL_FORM_CONFIGURE]}>
-                  <ConfiguracoesView />
-                </PermissionRoute>
-              )} />
-              <Route path="*" element={<Navigate to="/" replace />} />
-            </Routes>
+            <ErrorBoundary>
+              <Routes>
+                <Route path="/" element={(
+                  <PermissionRoute permissions={PERMISSIONS.DASHBOARD_VIEW}>
+                    <DashboardView
+                      setActiveModule={setActiveModule}
+                      openNovoAgendamento={() => setActiveModule('agenda')}
+                      openNovoPaciente={() => setNovoPacienteOpen(true)}
+                    />
+                  </PermissionRoute>
+                )} />
+                <Route path="/agenda" element={(
+                  <PermissionRoute permissions={PERMISSIONS.AGENDA_VIEW}>
+                    <AgendaView
+                      setActiveModule={setActiveModule}
+                    />
+                  </PermissionRoute>
+                )} />
+                <Route path="/fila-espera" element={(
+                  <PermissionRoute permissions={PERMISSIONS.AGENDA_VIEW}>
+                    <FilaEsperaView
+                      setActiveModule={setActiveModule}
+                      openNovoAgendamento={() => setActiveModule('agenda')}
+                    />
+                  </PermissionRoute>
+                )} />
+                <Route path="/pacientes" element={(
+                  <PermissionRoute permissions={PERMISSIONS.PATIENT_VIEW}>
+                    <PacientesView
+                      openNovoPaciente={() => setNovoPacienteOpen(true)}
+                      setSelectedPatient={selectPatient}
+                      setActiveModule={setActiveModule}
+                    />
+                  </PermissionRoute>
+                )} />
+                <Route path="/pacientes/:patientId" element={(
+                  <PermissionRoute permissions={PERMISSIONS.PATIENT_VIEW}>
+                    <PacienteHistoricoView
+                      patient={selectedPatient}
+                      initialTab={patientActiveTab}
+                      setActiveModule={setActiveModule}
+                      onSavePatient={handleUpdatePatient}
+                    />
+                  </PermissionRoute>
+                )} />
+                <Route path="/consultas" element={(
+                  <PermissionRoute permissions={PERMISSIONS.CONSULTATION_SUMMARY}>
+                    <WorkspaceAtendimento
+                      patient={selectedPatient}
+                      setActiveModule={setActiveModule}
+                      onViewProfile={() => handleOpenPatientDetails('pessoais')}
+                      onViewHistory={() => handleOpenPatientDetails('consultas')}
+                    />
+                  </PermissionRoute>
+                )} />
+                <Route path="/consultas/:consultationId" element={(
+                  <PermissionRoute permissions={PERMISSIONS.CONSULTATION_SUMMARY}>
+                    <WorkspaceAtendimento />
+                  </PermissionRoute>
+                )} />
+                <Route path="/financeiro" element={(
+                  <Navigate to="/" replace />
+                )} />
+                <Route path="/relatorios" element={(
+                  <PermissionRoute permissions={[PERMISSIONS.DASHBOARD_VIEW, PERMISSIONS.CONSULTATION_SUMMARY, PERMISSIONS.PATIENT_VIEW, PERMISSIONS.AGENDA_VIEW]}>
+                    <RelatoriosView
+                      setActiveModule={setActiveModule}
+                    />
+                  </PermissionRoute>
+                )} />
+                <Route path="/configuracoes" element={(
+                  <PermissionRoute permissions={[PERMISSIONS.SYSTEM_ADMIN, PERMISSIONS.CLINICAL_FORM_CONFIGURE]}>
+                    <ConfiguracoesView />
+                  </PermissionRoute>
+                )} />
+                <Route path="*" element={<Navigate to="/" replace />} />
+              </Routes>
+            </ErrorBoundary>
           </Suspense>
         </main>
       </div>

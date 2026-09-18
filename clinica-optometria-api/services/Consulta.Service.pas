@@ -636,6 +636,7 @@ end;
 function TConsultaService.AnamneseToJSON(AAnamneseId: Integer): TJSONObject;
 var
   LAnamnese: TModelAnamnese;
+  LConsulta: TModelConsulta;
 begin
   LAnamnese := TModelAnamnese.Create(TDatabase.Connection);
   try
@@ -666,6 +667,24 @@ begin
     AddStringPair(Result, 'observacoes_finais', LAnamnese.ObservacoesFinais);
     AddStringPair(Result, 'observacoes', LAnamnese.ObservacoesFinais);
     AddDatePair(Result, 'data', LAnamnese.Data);
+
+    if LAnamnese.ConsultaId > 0 then
+    begin
+      LConsulta := TModelConsulta.Create(TDatabase.Connection);
+      try
+        LConsulta.BuscaDadosTabela(LAnamnese.ConsultaId);
+        if LConsulta.Id > 0 then
+        begin
+          AddDatePair(Result, 'consulta_data', LConsulta.Data);
+          AddDatePair(Result, 'criado_em', LConsulta.CriadoEm);
+          AddDatePair(Result, 'consulta_criado_em', LConsulta.CriadoEm);
+          AddStringPair(Result, 'consulta_origem', LConsulta.Origem);
+          Result.AddPair('eh_retroativa', TJSONBool.Create(LConsulta.Origem = 'retroativa'));
+        end;
+      finally
+        LConsulta.Free;
+      end;
+    end;
   finally
     LAnamnese.Free;
   end;
@@ -679,6 +698,7 @@ end;
 function TConsultaService.CriarAnamnese(AConsultaId: Integer; ADados: TJSONObject): Integer;
 var
   LAnamnese: TModelAnamnese;
+  LConsulta: TModelConsulta;
 begin
   ValidarConsultaEditavel(AConsultaId);
   if not Assigned(ADados) then
@@ -704,7 +724,21 @@ begin
     LAnamnese.CefaleiaFrequencia := JsonString(ADados, 'cefaleia_frequencia');
     LAnamnese.AntecedentesFamiliares := JsonString(ADados, 'antecedentes_familiares');
     LAnamnese.ObservacoesFinais := JsonString(ADados, 'observacoes_finais', JsonString(ADados, 'observacoes'));
-    LAnamnese.Data := Now;
+    if JsonDate(ADados, 'data') > 0 then
+      LAnamnese.Data := JsonDate(ADados, 'data')
+    else
+    begin
+      LConsulta := TModelConsulta.Create(TDatabase.Connection);
+      try
+        LConsulta.BuscaDadosTabela(AConsultaId);
+        if LConsulta.Data > 0 then
+          LAnamnese.Data := LConsulta.Data
+        else
+          LAnamnese.Data := Now;
+      finally
+        LConsulta.Free;
+      end;
+    end;
     LAnamnese.SalvaNoBanco(1);
     Result := LAnamnese.Id;
   finally
@@ -743,7 +777,8 @@ begin
     LAnamnese.CefaleiaFrequencia := JsonString(ADados, 'cefaleia_frequencia');
     LAnamnese.AntecedentesFamiliares := JsonString(ADados, 'antecedentes_familiares');
     LAnamnese.ObservacoesFinais := JsonString(ADados, 'observacoes_finais', JsonString(ADados, 'observacoes'));
-    LAnamnese.Data := Now;
+    if JsonDate(ADados, 'data') > 0 then
+      LAnamnese.Data := JsonDate(ADados, 'data');
     LAnamnese.SalvaNoBanco(1);
   finally
     LAnamnese.Free;
@@ -886,6 +921,7 @@ end;
 function TConsultaService.CriarPrescricao(AConsultaId: Integer; ADados: TJSONObject): Integer;
 var
   LPrescricao: TModelPrescricao;
+  LConsulta: TModelConsulta;
 begin
   ValidarConsultaExiste(AConsultaId);
   if not Assigned(ADados) then
@@ -924,7 +960,21 @@ begin
     LPrescricao.Adicao := JsonString(ADados, 'adicao');
     LPrescricao.Lente := JsonString(ADados, 'lente');
     LPrescricao.Observacoes := JsonString(ADados, 'observacoes');
-    LPrescricao.Data := Now;
+    if JsonDate(ADados, 'data') > 0 then
+      LPrescricao.Data := JsonDate(ADados, 'data')
+    else
+    begin
+      LConsulta := TModelConsulta.Create(TDatabase.Connection);
+      try
+        LConsulta.BuscaDadosTabela(AConsultaId);
+        if LConsulta.Data > 0 then
+          LPrescricao.Data := LConsulta.Data
+        else
+          LPrescricao.Data := Now;
+      finally
+        LConsulta.Free;
+      end;
+    end;
     LPrescricao.SalvaNoBanco(1);
     Result := LPrescricao.Id;
   finally
@@ -979,7 +1029,8 @@ begin
     LPrescricao.Adicao := JsonString(ADados, 'adicao');
     LPrescricao.Lente := JsonString(ADados, 'lente');
     LPrescricao.Observacoes := JsonString(ADados, 'observacoes');
-    LPrescricao.Data := Now;
+    if JsonDate(ADados, 'data') > 0 then
+      LPrescricao.Data := JsonDate(ADados, 'data');
     LPrescricao.SalvaNoBanco(1);
   finally
     LPrescricao.Free;

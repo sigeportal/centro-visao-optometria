@@ -79,8 +79,6 @@ const FOROMETRY_FIELDS = [
   ['rfn', 'Resumo RFN'],
   ['flexibilidadeMonocular', 'Flexibilidade monocular'],
   ['acA', 'Relação AC/A'],
-  ['estereopsia', 'Estereopsia'],
-  ['visaoCromatica', 'Visão cromática'],
 ];
 
 const OPHTHALMOSCOPY_FIELDS = [
@@ -638,6 +636,8 @@ export default function AnamneseFichaClinica({ patient, consultation, disabled =
       tecnica: '',
       od: { bruckner: '', meiosRefringentes: '', papila: '', escavacao: '', macula: '', fixacao: '', cor: '', relacaoAv: '', amsler: '' },
       oe: { bruckner: '', meiosRefringentes: '', papila: '', escavacao: '', macula: '', fixacao: '', cor: '', relacaoAv: '', amsler: '' },
+      estereopsia: { linha1: '', linha2: '', teste: '' },
+      visaoCromatica: { od: '', oe: '', teste: '' },
       observacoes: '',
     },
 
@@ -1080,6 +1080,16 @@ export default function AnamneseFichaClinica({ patient, consultation, disabled =
               tecnica: content.tecnica ?? '',
               od: mapOphthalmoscopyEye(content.od),
               oe: mapOphthalmoscopyEye(content.oe),
+              estereopsia: {
+                linha1: content.estereopsia?.linha1 ?? '',
+                linha2: content.estereopsia?.linha2 ?? '',
+                teste: content.estereopsia?.teste ?? '',
+              },
+              visaoCromatica: {
+                od: content.visao_cromatica?.od ?? content.visaoCromatica?.od ?? '',
+                oe: content.visao_cromatica?.oe ?? content.visaoCromatica?.oe ?? '',
+                teste: content.visao_cromatica?.teste ?? content.visaoCromatica?.teste ?? '',
+              },
               observacoes: content.observacoes ?? '',
             },
           }));
@@ -1415,6 +1425,19 @@ export default function AnamneseFichaClinica({ patient, consultation, disabled =
       [section]: {
         ...current[section],
         [eye]: { ...current[section][eye], [field]: value },
+      },
+    }));
+  };
+
+  const updateOphthalmoscopyNestedField = (sub, field, value) => {
+    setAnamneseData((current) => ({
+      ...current,
+      oftalmoscopia: {
+        ...current.oftalmoscopia,
+        [sub]: {
+          ...current.oftalmoscopia?.[sub],
+          [field]: value,
+        },
       },
     }));
   };
@@ -1879,6 +1902,16 @@ export default function AnamneseFichaClinica({ patient, consultation, disabled =
       tecnica: data.tecnica,
       od: buildEye(data.od, ophthalmoscopyRaw.od),
       oe: buildEye(data.oe, ophthalmoscopyRaw.oe),
+      estereopsia: {
+        linha1: data.estereopsia?.linha1 ?? '',
+        linha2: data.estereopsia?.linha2 ?? '',
+        teste: data.estereopsia?.teste ?? '',
+      },
+      visao_cromatica: {
+        od: data.visaoCromatica?.od ?? '',
+        oe: data.visaoCromatica?.oe ?? '',
+        teste: data.visaoCromatica?.teste ?? '',
+      },
       observacoes: data.observacoes,
     };
     setSavingOphthalmoscopy(true);
@@ -3456,6 +3489,96 @@ export default function AnamneseFichaClinica({ patient, consultation, disabled =
                         </tr>
                       </tbody>
                     </table>
+                  </div>
+                  <div className="pt-2">
+                    <div className="rounded-xl border border-slate-200/90 bg-slate-50/60 p-4 space-y-3">
+                      <div className="flex items-center justify-between border-b border-slate-200/80 pb-2">
+                        <span className="text-xs font-bold text-slate-800 uppercase tracking-wide">
+                          Avaliação Sensorial / Testes Especiais
+                        </span>
+                        <span className="text-[11px] text-slate-500 font-medium">
+                          Estereopsia e Visão Cromática
+                        </span>
+                      </div>
+
+                      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 pt-1">
+                        {/* ESTEREOP */}
+                        <div className="rounded-lg border border-slate-200 bg-white p-3 space-y-2.5 shadow-xs">
+                          <div className="pb-1 border-b border-slate-100">
+                            <span className="text-[11px] font-bold uppercase tracking-wider text-slate-700">
+                              ESTEREOP (Estereopsia)
+                            </span>
+                          </div>
+                          <div className="space-y-2">
+                            <input
+                              type="text"
+                              value={anamneseData.oftalmoscopia.estereopsia?.linha1 || ''}
+                              onChange={(event) => updateOphthalmoscopyNestedField('estereopsia', 'linha1', event.target.value)}
+                              disabled={disabled || loadingOphthalmoscopy || savingOphthalmoscopy}
+                              className="clinical-input h-8 font-medium text-xs"
+                            />
+                            <input
+                              type="text"
+                              value={anamneseData.oftalmoscopia.estereopsia?.linha2 || ''}
+                              onChange={(event) => updateOphthalmoscopyNestedField('estereopsia', 'linha2', event.target.value)}
+                              disabled={disabled || loadingOphthalmoscopy || savingOphthalmoscopy}
+                              className="clinical-input h-8 font-medium text-xs"
+                            />
+                            <div className="flex items-center gap-2 pt-0.5">
+                              <span className="text-[10px] font-bold uppercase text-slate-600 w-12 shrink-0">Teste:</span>
+                              <input
+                                type="text"
+                                value={anamneseData.oftalmoscopia.estereopsia?.teste || ''}
+                                onChange={(event) => updateOphthalmoscopyNestedField('estereopsia', 'teste', event.target.value)}
+                                disabled={disabled || loadingOphthalmoscopy || savingOphthalmoscopy}
+                                className="clinical-input h-8 font-medium text-xs flex-1"
+                              />
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* V. CROMAT */}
+                        <div className="rounded-lg border border-slate-200 bg-white p-3 space-y-2.5 shadow-xs">
+                          <div className="pb-1 border-b border-slate-100">
+                            <span className="text-[11px] font-bold uppercase tracking-wider text-slate-700">
+                              V. CROMAT (Visão Cromática)
+                            </span>
+                          </div>
+                          <div className="space-y-2">
+                            <div className="flex items-center gap-2">
+                              <span className="text-[11px] font-bold text-slate-700 w-7 shrink-0 text-center">OD:</span>
+                              <input
+                                type="text"
+                                value={anamneseData.oftalmoscopia.visaoCromatica?.od || ''}
+                                onChange={(event) => updateOphthalmoscopyNestedField('visaoCromatica', 'od', event.target.value)}
+                                disabled={disabled || loadingOphthalmoscopy || savingOphthalmoscopy}
+                                className="clinical-input h-8 font-medium text-xs flex-1"
+                              />
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <span className="text-[11px] font-bold text-slate-700 w-7 shrink-0 text-center">OE:</span>
+                              <input
+                                type="text"
+                                value={anamneseData.oftalmoscopia.visaoCromatica?.oe || ''}
+                                onChange={(event) => updateOphthalmoscopyNestedField('visaoCromatica', 'oe', event.target.value)}
+                                disabled={disabled || loadingOphthalmoscopy || savingOphthalmoscopy}
+                                className="clinical-input h-8 font-medium text-xs flex-1"
+                              />
+                            </div>
+                            <div className="flex items-center gap-2 pt-0.5">
+                              <span className="text-[10px] font-bold uppercase text-slate-600 w-12 shrink-0">Teste:</span>
+                              <input
+                                type="text"
+                                value={anamneseData.oftalmoscopia.visaoCromatica?.teste || ''}
+                                onChange={(event) => updateOphthalmoscopyNestedField('visaoCromatica', 'teste', event.target.value)}
+                                disabled={disabled || loadingOphthalmoscopy || savingOphthalmoscopy}
+                                className="clinical-input h-8 font-medium text-xs flex-1"
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
                   </div>
                   <label className="block">
                     <span className="block text-[10px] font-bold uppercase text-slate-600 mb-1">Observações</span>
