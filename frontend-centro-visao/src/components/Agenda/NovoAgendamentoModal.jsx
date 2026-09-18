@@ -16,12 +16,19 @@ function getErrorMessage(error) {
 function makeInitialForm(initialData, professionals, procedures, mode) {
   const defaultDate = toIsoDate(addDays(new Date(), 1));
   const startTime = initialData?.startTime || '08:00';
-  const initialProcedureId = initialData?.procedureId || procedures[0]?.id || '';
+  const matchedProcedure = initialData?.procedureId
+    ? procedures.find((item) => String(item.id) === String(initialData.procedureId))
+    : procedures.find((item) => {
+        const itemNome = (item.nome || '').toLowerCase();
+        const initialNome = (initialData?.procedure || '').toLowerCase();
+        return itemNome === initialNome || (initialNome && itemNome.includes(initialNome));
+      });
+  const initialProcedureId = matchedProcedure?.id || initialData?.procedureId || procedures[0]?.id || '';
   const selectedProcedure = procedures.find((item) => String(item.id) === String(initialProcedureId));
   return {
     professionalId: initialData?.doctorId || professionals[0]?.id || '',
     procedureId: String(initialProcedureId || ''),
-    procedure: initialData?.procedure || selectedProcedure?.nome || '',
+    procedure: selectedProcedure?.nome || initialData?.procedure || '',
     partnershipId: String(initialData?.partnershipId || ''),
     date: initialData?.date || defaultDate,
     startTime,

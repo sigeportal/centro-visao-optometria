@@ -294,7 +294,7 @@ export default function PacienteHistoricoView({
       )}
 
       {activeTab === 'retornos' && (
-        <RetornosPacienteTab patient={patient} />
+        <RetornosPacienteTab patient={patient} setActiveModule={setActiveModule} />
       )}
 
       {activeTab === 'anamnese' && (

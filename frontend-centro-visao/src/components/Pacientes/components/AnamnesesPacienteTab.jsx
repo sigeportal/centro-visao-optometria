@@ -23,6 +23,7 @@ import { PERMISSIONS } from '../../../constants/permissions';
 import { adaptConsultation } from '../../../domain/consultas';
 import { parseApiDateTime, toIsoDate } from '../../../domain/agenda';
 import RichTextEditor, { sanitizeRichTextHtml } from '../../Common/RichTextEditor';
+import ErrorBoundary from '../../Common/ErrorBoundary';
 
 const ANAMNESIS_OPTIONS = {
   sintomas: [
@@ -170,12 +171,30 @@ function AnamnesisModal({ entry, consultationId, mode, patient, clinicInfo, cons
   }, [onClose, saving]);
 
   const update = (field, value) => setForm((current) => ({ ...current, [field]: value }));
-  const toggleOption = (field, option) => setForm((current) => ({
-    ...current,
-    [field]: current[field].includes(option)
-      ? current[field].filter((item) => item !== option)
-      : [...current[field], option],
-  }));
+  const toggleOption = (field, option) => setForm((current) => {
+    const list = Array.isArray(current[field]) ? current[field] : [];
+    return {
+      ...current,
+      [field]: list.includes(option)
+        ? list.filter((item) => item !== option)
+        : [...list, option],
+    };
+  });
+
+  const handlePrintCurrentModal = () => {
+    try {
+      const targetConsultationId = entry?.consulta_id || entry?.consultaId || consultationId;
+      const consultation = Array.isArray(consultations)
+        ? consultations.find((c) => String(c.id) === String(targetConsultationId))
+        : null;
+      const printData = { ...entry, ...form };
+      const html = generateAnamnesisHtml(printData, patient, clinicInfo, consultation);
+      printAnamneseViaIframe(html);
+      onNotify?.('success', 'Anamnese enviada para impressão.');
+    } catch {
+      onNotify?.('error', 'Não foi possível preparar a impressão da anamnese.');
+    }
+  };
 
   const handleSubmit = async (event) => {
     event.preventDefault();
@@ -195,13 +214,13 @@ function AnamnesisModal({ entry, consultationId, mode, patient, clinicInfo, cons
         doencas_oculares: joinValues(form.doencasOculares, form.outrasDoencasOculares),
         doencas_sistemicas: joinValues(form.doencasSistemicas, form.outrasDoencasSistemicas),
         medicamentos: joinValues(form.medicamentos, form.outrosMedicamentos),
-        uso_oculos: form.usoOculos.includes('Usa Óculos'),
-        uso_lente: form.usoLentes.includes('Usa Lente de Contato?'),
-        dificuldade_longe: form.usoOculos.includes('Dificuldade Longe') || form.usoLentes.includes('Dificuldade Longe'),
-        dificuldade_perto: form.usoOculos.includes('Dificuldade Perto') || form.usoLentes.includes('Dificuldade Perto'),
-        cefaleia: form.cefaleia.includes('Dor de cabeça'),
-        cefaleia_local: joinValues(form.cefaleia.filter((item) => ANAMNESIS_OPTIONS.cefaleiaLocal.includes(item)), form.cefaleiaLocalOutro),
-        cefaleia_frequencia: joinValues(form.cefaleia.filter((item) => ANAMNESIS_OPTIONS.cefaleiaFrequencia.includes(item)), form.cefaleiaFrequenciaOutro),
+        uso_oculos: Array.isArray(form.usoOculos) && form.usoOculos.includes('Usa Óculos'),
+        uso_lente: Array.isArray(form.usoLentes) && form.usoLentes.includes('Usa Lente de Contato?'),
+        dificuldade_longe: (Array.isArray(form.usoOculos) && form.usoOculos.includes('Dificuldade Longe')) || (Array.isArray(form.usoLentes) && form.usoLentes.includes('Dificuldade Longe')),
+        dificuldade_perto: (Array.isArray(form.usoOculos) && form.usoOculos.includes('Dificuldade Perto')) || (Array.isArray(form.usoLentes) && form.usoLentes.includes('Dificuldade Perto')),
+        cefaleia: Array.isArray(form.cefaleia) && form.cefaleia.includes('Dor de cabeça'),
+        cefaleia_local: joinValues(Array.isArray(form.cefaleia) ? form.cefaleia.filter((item) => ANAMNESIS_OPTIONS.cefaleiaLocal.includes(item)) : [], form.cefaleiaLocalOutro),
+        cefaleia_frequencia: joinValues(Array.isArray(form.cefaleia) ? form.cefaleia.filter((item) => ANAMNESIS_OPTIONS.cefaleiaFrequencia.includes(item)) : [], form.cefaleiaFrequenciaOutro),
         antecedentes_familiares: joinValues(form.antecedentes, form.antecedentesOutros),
         observacoes_finais: form.observacoesAnamnese,
       };
@@ -245,7 +264,8 @@ function AnamnesisModal({ entry, consultationId, mode, patient, clinicInfo, cons
       <p className="clinical-label !mb-0">{title}</p>
       <div className={`grid ${className} gap-2`}>
         {options.map((option) => {
-          const checked = form[field].includes(option);
+          const list = Array.isArray(form[field]) ? form[field] : [];
+          const checked = list.includes(option);
           return (
             <label
               key={option}
@@ -457,6 +477,10 @@ export default function AnamnesesPacienteTab({ patient, onNotify }) {
   }, []);
 
   const load = useCallback(async (signal) => {
+    if (!patient?.id) {
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     setError('');
     try {
@@ -506,7 +530,8 @@ export default function AnamnesesPacienteTab({ patient, onNotify }) {
     try {
       const data = await obterAnamnese(item.id);
       const consultation = consultations.find((c) => String(c.id) === String(item.consulta_id || item.consultaId || data.consulta_id));
-      const html = generateAnamnesisHtml(data, patient, clinicInfo, consultation);
+      const printData = { ...item, ...data };
+      const html = generateAnamnesisHtml(printData, patient, clinicInfo, consultation);
       printAnamneseViaIframe(html);
       onNotify?.('success', 'Anamnese enviada para impressão.');
     } catch (errorValue) {
@@ -532,24 +557,24 @@ export default function AnamnesesPacienteTab({ patient, onNotify }) {
     <div className="space-y-4 animate-fade-in text-xs">
       <div className="clinical-panel p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
-          <h3 className="font-bold text-sm text-slate-900 tracking-tight">Anamneses</h3>
+          <h2 className="text-sm font-bold text-slate-900 tracking-tight">Anamneses</h2>
           <p className="text-[11px] text-slate-400 mt-0.5">Registros clínicos vinculados às consultas deste paciente.</p>
         </div>
         <div className="flex items-center gap-2">
-          <button 
-            type="button" 
-            onClick={() => setRefreshKey((value) => value + 1)} 
-            disabled={loading} 
-            className="h-10 w-10 btn-secondary p-0 shrink-0" 
-            title="Atualizar anamneses" 
-            aria-label="Atualizar anamneses"
+          <button
+            type="button"
+            onClick={() => setRefreshKey((value) => value + 1)}
+            disabled={loading}
+            className="p-2 rounded-xl border border-slate-200 text-slate-600 hover:bg-slate-50 transition-colors"
+            title="Atualizar lista"
           >
-            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin text-forest-700' : ''}`} />
           </button>
           {canEditClinical && (
-            <button 
-              type="button" 
-              onClick={handleAdd} 
+            <button
+              type="button"
+              onClick={handleAdd}
+              disabled={loading}
               className="h-10 btn-primary px-4"
             >
               <FilePlus2 className="w-4 h-4" />
@@ -560,9 +585,9 @@ export default function AnamnesesPacienteTab({ patient, onNotify }) {
       </div>
 
       {error && (
-        <div className="bg-rose-50 border border-rose-200 rounded-2xl p-4 text-rose-900 font-semibold flex items-start gap-2.5">
-          <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-rose-600" />
-          <span>{error}</span>
+        <div className="p-4 rounded-2xl bg-rose-50 border border-rose-200 text-rose-800 flex items-center gap-2.5">
+          <AlertCircle className="w-4 h-4 shrink-0 text-rose-600" />
+          <p className="font-semibold">{error}</p>
         </div>
       )}
 
@@ -571,7 +596,7 @@ export default function AnamnesesPacienteTab({ patient, onNotify }) {
           <thead>
             <tr className="bg-slate-50/80 border-b border-slate-200/80 text-[10px] uppercase font-bold text-slate-600 tracking-wider">
               <th className="py-3 px-4 w-16">#</th>
-              <th className="py-3 px-4">Data de Cadastro</th>
+              <th className="py-3 px-4">Data do Atendimento</th>
               <th className="py-3 px-4">Cadastrado por</th>
               <th className="py-3 px-4 text-right">Opções</th>
             </tr>
@@ -580,7 +605,11 @@ export default function AnamnesesPacienteTab({ patient, onNotify }) {
             {!loading && items.map((item, index) => (
               <tr key={item.id} className="hover:bg-forest-50/20 transition-colors">
                 <td className="py-3.5 px-4 text-slate-500 font-mono font-bold">{index + 1}</td>
-                <td className="py-3.5 px-4 text-slate-800 font-mono font-medium">{formatDateTime(item.criado_em || item.data)}</td>
+                <td className="py-3.5 px-4">
+                  <span className="text-slate-800 font-mono font-medium">
+                    {formatDateTime(item.consulta_data || item.data)}
+                  </span>
+                </td>
                 <td className="py-3.5 px-4 text-slate-700 font-medium">{item.profissional || 'Profissional não informado'}</td>
                 <td className="py-3.5 px-4">
                   <div className="flex justify-end">
@@ -592,10 +621,13 @@ export default function AnamnesesPacienteTab({ patient, onNotify }) {
                           setMenuAnchor(null);
                         } else {
                           const rect = e.currentTarget.getBoundingClientRect();
+                          const estimatedHeight = 175;
+                          const openUpwards = window.innerHeight - rect.bottom < estimatedHeight && rect.top > estimatedHeight;
                           setMenuAnchor({
                             id: item.id,
                             item: item,
-                            top: rect.bottom + 6,
+                            top: openUpwards ? undefined : rect.bottom + 6,
+                            bottom: openUpwards ? (window.innerHeight - rect.top + 6) : undefined,
                             right: Math.max(16, window.innerWidth - rect.right),
                           });
                         }
@@ -631,22 +663,41 @@ export default function AnamnesesPacienteTab({ patient, onNotify }) {
       </div>
 
             {modal && (
-        <AnamnesisModal 
-          entry={modal.entry} 
-          consultationId={modal.consultationId} 
-          mode={modal.mode} 
-          patient={patient} 
-          clinicInfo={clinicInfo}
-          consultations={consultations}
-          onClose={() => setModal(null)} 
-          onSaved={() => setRefreshKey((value) => value + 1)} 
-          onNotify={onNotify} 
-        />
+        <ErrorBoundary fallback={(
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-xs">
+            <div className="bg-white rounded-2xl p-6 max-w-md w-full shadow-modal text-center space-y-4">
+              <p className="font-semibold text-slate-800 text-sm">Ocorreu um erro ao carregar o modal da anamnese.</p>
+              <button
+                type="button"
+                onClick={() => setModal(null)}
+                className="btn-primary px-4 py-2 text-xs"
+              >
+                Fechar
+              </button>
+            </div>
+          </div>
+        )}>
+          <AnamnesisModal 
+            entry={modal.entry} 
+            consultationId={modal.consultationId} 
+            mode={modal.mode} 
+            patient={patient} 
+            clinicInfo={clinicInfo}
+            consultations={consultations}
+            onClose={() => setModal(null)} 
+            onSaved={() => setRefreshKey((value) => value + 1)} 
+            onNotify={onNotify} 
+          />
+        </ErrorBoundary>
       )}
 
       {menuAnchor && createPortal(
         <div 
-          style={{ top: `${menuAnchor.top}px`, right: `${menuAnchor.right}px` }}
+          style={{
+            top: menuAnchor.top !== undefined ? `${menuAnchor.top}px` : undefined,
+            bottom: menuAnchor.bottom !== undefined ? `${menuAnchor.bottom}px` : undefined,
+            right: `${menuAnchor.right}px`,
+          }}
           className="fixed w-44 bg-white rounded-2xl border border-slate-200/90 text-slate-800 p-1.5 shadow-modal z-[999999] animate-fade-in text-xs"
           role="menu"
           onClick={(e) => e.stopPropagation()}

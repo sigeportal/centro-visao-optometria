@@ -277,7 +277,7 @@ export default function RegistrarConsultaRetroativaModal({
               <h3 className="font-bold text-sm tracking-tight text-white flex items-center gap-2">
                 Lançar Consulta Retroativa
                 <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-amber-400/20 text-amber-300 border border-amber-400/30">
-                  Histórico
+                  Retroativa
                 </span>
               </h3>
               <p className="text-[11px] text-forest-200/80">

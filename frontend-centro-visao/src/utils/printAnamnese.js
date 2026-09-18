@@ -120,7 +120,25 @@ export function generateAnamnesisHtml(data = {}, patient = {}, clinicInfo = {}, 
   const patientBirth = patient?.birthDate || patient?.data_nascimento || consultation?.patientBirthDate;
   const patientPhone = patient?.phone || patient?.telefone || patient?.celular || consultation?.patientPhone;
   const doctorName = consultation?.doctor || consultation?.profissional || 'Optometrista Responsável';
-  const dataRegistro = data.criado_em || data.data || consultation?.date || new Date();
+  const isRetroactive = consultation?.origem === 'retroativa'
+    || consultation?.isRetroactive
+    || Boolean(data?.eh_retroativa)
+    || data?.consulta_origem === 'retroativa';
+
+  const dataAtendimento = consultation?.date
+    || data.consulta_data
+    || data.data
+    || data.criado_em
+    || new Date();
+
+  const dataRegistroRaw = consultation?.createdAt
+    || consultation?.criado_em
+    || data.consulta_criado_em
+    || data.criado_em;
+
+  const dataRegistro = isRetroactive && (!dataRegistroRaw || String(dataRegistroRaw) === String(data.data) || String(dataRegistroRaw) === String(dataAtendimento))
+    ? (consultation?.createdAt || consultation?.criado_em || new Date())
+    : (dataRegistroRaw || new Date());
 
   const addressLine = [
     clinicInfo?.address || clinicInfo?.endereco,
@@ -236,8 +254,8 @@ export function generateAnamnesisHtml(data = {}, patient = {}, clinicInfo = {}, 
           <span style="font-family: monospace; margin-left: 4px;">${escapeHtml(patientPhone ? formatPhone(patientPhone) : 'Não informado')}</span>
         </div>
         <div>
-          <span style="color: #64748b; font-weight: bold;">Data da Anamnese:</span>
-          <span style="margin-left: 4px;">${formatDateTime(dataRegistro)}</span>
+          <span style="color: #64748b; font-weight: bold;">Data do Atendimento:</span>
+          <span style="margin-left: 4px; font-weight: bold; color: #0f172a;">${formatDate(dataAtendimento)}</span>
         </div>
         <div>
           <span style="color: #64748b; font-weight: bold;">Profissional:</span>
@@ -344,6 +362,7 @@ export function generateAnamnesisHtml(data = {}, patient = {}, clinicInfo = {}, 
     <div style="margin-top: 36px; display: flex; align-items: flex-end; justify-content: space-between; font-size: 9.5px; break-inside: avoid;">
       <div style="color: #64748b; max-width: 420px; line-height: 1.35;">
         <div>Documento clínico gerado eletronicamente no sistema Centro Visão Optometria.</div>
+        ${isRetroactive ? `<div style="color: #475569; font-weight: 600; margin-top: 2px;">• Registro retroativo incluído no sistema em ${formatDateTime(dataRegistro)}.</div>` : ''}
         <div>As informações acima foram coletadas e confirmadas durante o atendimento optométrico.</div>
       </div>
       <div style="text-align: center; width: 240px;">

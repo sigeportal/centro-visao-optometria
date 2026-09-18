@@ -203,18 +203,7 @@ export default function HistoricoConsultasTab({ patient }) {
                   </td>
                   <td className="py-3.5 px-4 text-slate-800 font-semibold">{consultation.doctor}</td>
                   <td className="py-3.5 px-4 text-slate-600 font-medium">
-                    <div className="flex items-center gap-1.5 flex-wrap">
-                      <span>{consultation.procedure}</span>
-                      {isRetroactive && (
-                        <span
-                          className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-amber-50 text-amber-800 border border-amber-200/80 shadow-xs cursor-help select-none"
-                          title="Consulta retroativa inserida via migração de prontuário físico (auditado pela LGPD)"
-                        >
-                          <History className="w-2.5 h-2.5 text-amber-600 shrink-0" />
-                          Histórico
-                        </span>
-                      )}
-                    </div>
+                    <span>{consultation.procedure}</span>
                   </td>
                   <td className="py-3.5 px-4 text-center">
                     <span className={finished ? 'badge-finished' : 'badge-waiting'}>
