@@ -1,0 +1,55 @@
+name: Frontend CI/CD
+
+on:
+  pull_request:
+    paths:
+      - "frontend-centro-visao/**"
+      - ".github/workflows/frontend.yml"
+  push:
+    branches: [main]
+    paths:
+      - "frontend-centro-visao/**"
+      - ".github/workflows/frontend.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: frontend-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend-centro-visao
+    env:
+      VITE_API_URL: ${{ vars.VITE_API_URL }}
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend-centro-visao/package-lock.json
+
+      - run: npm ci
+
+      - name: Validar URL da API de producao
+        if: github.event_name == 'push'
+        shell: bash
+        run: test -n "$VITE_API_URL"
+
+      - run: npm run build
+
+      - name: Publicar no Firebase Hosting
+        if: github.event_name == 'push'
+        uses: FirebaseExtended/action-hosting-deploy@v0
+        with:
+          entryPoint: frontend-centro-visao
+          firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_CENTRO_VISAO_OPTOMETRIA }}
+          channelId: live
+          projectId: centro-visao-optometria
