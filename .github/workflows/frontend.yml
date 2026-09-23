@@ -49,6 +49,7 @@ jobs:
         if: github.event_name == 'push'
         uses: FirebaseExtended/action-hosting-deploy@v0
         with:
+        
           entryPoint: frontend-centro-visao
           firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_CENTRO_VISAO_OPTOMETRIA }}
           channelId: live
