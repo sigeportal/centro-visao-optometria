@@ -65,7 +65,10 @@ uses
   Security.Password in 'security\Security.Password.pas',
   Auth.Controller in 'Controllers\Auth.Controller.pas',
   Logger.Utils in 'utils\Logger.Utils.pas',
-  Response.Utils in 'utils\Response.Utils.pas';
+  Response.Utils in 'utils\Response.Utils.pas',
+  ConfiguracaoClinica.Service in 'services\ConfiguracaoClinica.Service.pas',
+  UnitConfiguracaoClinica.Model in 'Model\UnitConfiguracaoClinica.Model.pas',
+  ConfiguracaoClinica.Controller in 'Controllers\ConfiguracaoClinica.Controller.pas';
 
 var
   LLogConfig: THorseLoggerConsoleConfig;
@@ -94,11 +97,11 @@ begin
   try
     THorseLoggerManager.RegisterProvider(THorseLoggerProviderConsole.New);
 
-    HorseCORS
-      .AllowedOrigin(TConstants.CORSAllowedOrigins)
-      .AllowedHeaders('Content-Type, Authorization, X-Requested-With, Accept, Origin')
-      .AllowedMethods('GET, POST, PUT, DELETE, PATCH, OPTIONS')
-      .AllowedCredentials(True);
+//    HorseCORS
+//      .AllowedOrigin(TConstants.CORSAllowedOrigins)
+//      .AllowedHeaders('Content-Type, Authorization, X-Requested-With, Accept, Origin')
+//      .AllowedMethods('GET, POST, PUT, DELETE, PATCH, OPTIONS')
+//      .AllowedCredentials(True);
 
     THorse.Use(MiddlewareCorrelation);
     THorse.Use(CORS);
