@@ -56,6 +56,8 @@ type
     function ImpressaoDocumento(ADocumentoId: Integer): TJSONObject;
     function ListarAnexos(AConsultaId: Integer): TJSONArray;
     function CriarAnexo(AConsultaId, AUsuarioId: Integer; ADados: TJSONObject): Integer;
+    function ObterDadosArquivoDocumento(ADocumentoId: Integer; out AConsultaId: Integer;
+      out ANomeArquivo, ACaminhoArquivo, AMimeType: string): Boolean;
   end;
 
 implementation
@@ -70,7 +72,8 @@ uses
   UnitDatabase,
   Models.Clinica,
   Atendimento.Service,
-  Dataset.JSON.Utils;
+  Dataset.JSON.Utils,
+  Storage.Service;
 
 const
   STATUS_AGENDADA = 'agendada';
@@ -1053,6 +1056,8 @@ begin
     AddStringPair(Result, 'tipo', LDocumento.Tipo);
     AddStringPair(Result, 'titulo', LDocumento.Titulo);
     AddStringPair(Result, 'nome', LDocumento.NomeArquivo);
+    AddStringPair(Result, 'caminho_arquivo', LDocumento.CaminhoArquivo);
+    AddStringPair(Result, 'url', LDocumento.CaminhoArquivo);
     AddStringPair(Result, 'mime_type', LDocumento.MimeType);
     Result.AddPair('tamanho', TJSONNumber.Create(LDocumento.Tamanho));
     AddDatePair(Result, 'data_upload', LDocumento.DataUpload);
@@ -1281,6 +1286,7 @@ begin
   LQuery.Clear;
   LQuery.Add('SELECT DOC_ID AS ID, DOC_CONSULTA_ID AS CONSULTA_ID, DOC_PACIENTE_ID AS PACIENTE_ID, ');
   LQuery.Add('DOC_TITULO AS TITULO, DOC_NOME_ARQUIVO AS NOME, DOC_CAMINHO_ARQUIVO AS URL, ');
+  LQuery.Add('DOC_MIME_TYPE AS MIME_TYPE, DOC_TAMANHO AS TAMANHO, ');
   LQuery.Add('DOC_DATA_UPLOAD AS DATA_UPLOAD, DOC_STATUS AS STATUS, DOC_CRIADO_POR AS CRIADO_POR ');
   LQuery.Add('FROM DOCUMENTOS_CONSULTA WHERE DOC_CONSULTA_ID = :CONSULTA_ID AND DOC_TIPO = :TIPO ');
   LQuery.Add('ORDER BY DOC_DATA_UPLOAD DESC, DOC_ID DESC');
@@ -1294,19 +1300,28 @@ function TConsultaService.CriarAnexo(AConsultaId, AUsuarioId: Integer;
   ADados: TJSONObject): Integer;
 var
   LDocumento: TModelDocumentoConsulta;
-  LNome, LURL: string;
+  LNome, LURL, LConteudoBase64, LMimeType, LCaminhoRelativo: string;
+  LTamanhoBytes: Int64;
 begin
   ValidarConsultaEditavel(AConsultaId);
   if not Assigned(ADados) then
     raise EConsultaValidacao.Create('Payload invalido');
 
   LNome := JsonString(ADados, 'nome');
-  LURL := JsonString(ADados, 'url');
+  if LNome = '' then
+    LNome := JsonString(ADados, 'nome_arquivo');
   if (LNome = '') or (Length(LNome) > 255) then
     raise EConsultaValidacao.Create('Nome do documento invalido');
-  if (Length(LURL) > 500) or
-    ((not StartsText('https://', LURL)) and (not StartsText('http://', LURL))) then
-    raise EConsultaValidacao.Create('Informe um link valido iniciado por http:// ou https://');
+
+  LConteudoBase64 := JsonString(ADados, 'conteudo_base64');
+  if LConteudoBase64 = '' then
+    LConteudoBase64 := JsonString(ADados, 'arquivo_base64');
+
+  LURL := JsonString(ADados, 'url');
+  LMimeType := JsonString(ADados, 'mime_type');
+
+  if (LConteudoBase64 = '') and (LURL = '') then
+    raise EConsultaValidacao.Create('Informe o conteudo do arquivo em base64 ou uma URL valida');
 
   LDocumento := TModelDocumentoConsulta.Create(TDatabase.Connection);
   try
@@ -1316,16 +1331,74 @@ begin
     LDocumento.Tipo := DOCUMENTO_ANEXO;
     LDocumento.Titulo := LNome;
     LDocumento.NomeArquivo := LNome;
-    LDocumento.CaminhoArquivo := LURL;
     LDocumento.DataUpload := Now;
     LDocumento.Status := ANEXO_VINCULADO;
     LDocumento.CriadoPor := AUsuarioId;
     LDocumento.AtualizadoPor := AUsuarioId;
     LDocumento.AtualizadoEm := Now;
+
+    if LConteudoBase64 <> '' then
+    begin
+      try
+        if not TStorageService.SalvarDocumentoBase64(LNome, LMimeType, LConteudoBase64, LCaminhoRelativo, LTamanhoBytes) then
+          raise EConsultaValidacao.Create('Falha ao processar e salvar anexo');
+      except
+        on E: EStorageValidacao do
+          raise EConsultaValidacao.Create(E.Message);
+        on E: Exception do
+          raise EConsultaValidacao.Create('Erro ao salvar documento: ' + E.Message);
+      end;
+
+      LDocumento.CaminhoArquivo := LCaminhoRelativo;
+      if LMimeType = '' then
+        LMimeType := TStorageService.MimeTypeDoArquivo(LCaminhoRelativo);
+      LDocumento.MimeType := LMimeType;
+      LDocumento.Tamanho := LTamanhoBytes;
+    end
+    else
+    begin
+      if (Length(LURL) > 500) or
+        ((not StartsText('https://', LURL)) and (not StartsText('http://', LURL))) then
+        raise EConsultaValidacao.Create('Informe um link valido iniciado por http:// ou https://');
+
+      LDocumento.CaminhoArquivo := LURL;
+      LDocumento.MimeType := LMimeType;
+      LDocumento.Tamanho := 0;
+    end;
+
     LDocumento.SalvaNoBanco(1);
     Result := LDocumento.Id;
   finally
     LDocumento.Free;
+  end;
+end;
+
+function TConsultaService.ObterDadosArquivoDocumento(ADocumentoId: Integer;
+  out AConsultaId: Integer; out ANomeArquivo, ACaminhoArquivo, AMimeType: string): Boolean;
+var
+  LDoc: TModelDocumentoConsulta;
+begin
+  AConsultaId := 0;
+  ANomeArquivo := '';
+  ACaminhoArquivo := '';
+  AMimeType := '';
+
+  if ADocumentoId <= 0 then
+    raise EConsultaValidacao.Create('Identificador de documento invalido');
+
+  LDoc := TModelDocumentoConsulta.Create(TDatabase.Connection);
+  try
+    LDoc.BuscaDadosTabela(ADocumentoId);
+    if LDoc.Id <= 0 then
+      raise EConsultaNaoEncontrada.Create('Documento nao encontrado');
+
+    AConsultaId := LDoc.ConsultaId;
+    ANomeArquivo := LDoc.NomeArquivo;
+    ACaminhoArquivo := LDoc.CaminhoArquivo;
+    AMimeType := LDoc.MimeType;
+    Result := True;
+  finally
+    LDoc.Free;
   end;
 end;
 

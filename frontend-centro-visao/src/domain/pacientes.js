@@ -121,6 +121,6 @@ export function patientPayload(patient) {
     cidade: patient.city || '',
     estado: patient.state || '',
     cep: patient.cep || '',
-    foto: patient.photo || '',
+    foto: patient.photo || patient.foto || '',
   };
 }

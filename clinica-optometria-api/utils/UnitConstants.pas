@@ -23,6 +23,7 @@ type
     class function JWTIssuer: string;
     class function JWTAudience: string;
     class function CORSAllowedOrigins: string;
+    class function StoragePath: string;
     class procedure ValidarConfiguracaoObrigatoria;
     class procedure CarregarArquivoEnv(const ACaminho: string = '');
   end;
@@ -42,8 +43,11 @@ implementation
 uses
   System.StrUtils,
   System.Classes
-  {$IFDEF WIN32}
+  {$IFDEF MSWINDOWS}
   ,Winapi.Windows
+  {$ENDIF}
+  {$IFDEF POSIX}
+  ,Posix.Stdlib
   {$ENDIF}
   ;
 
@@ -80,8 +84,11 @@ begin
         begin
           LChave := Trim(Copy(LLinha, 1, LPos - 1));
           LValor := Trim(Copy(LLinha, LPos + 1, MaxInt));
-          {$IFDEF WIN32}
-  				SetEnvironmentVariable(PChar(LChave), PChar(LValor));
+          {$IFDEF MSWINDOWS}
+          SetEnvironmentVariable(PChar(LChave), PChar(LValor));
+          {$ENDIF}
+          {$IFDEF POSIX}
+          setenv(MarshaledAString(UTF8Encode(LChave)), MarshaledAString(UTF8Encode(LValor)), 1);
           {$ENDIF}
         end;
       end;
@@ -94,6 +101,17 @@ end;
 class function TConstants.BancoDados: string;
 begin
   Result := GetEnvironmentVariable('CAMINHO_BD');
+end;
+
+class function TConstants.StoragePath: string;
+var
+  LEnv: string;
+begin
+  LEnv := Trim(GetEnvironmentVariable('STORAGE_PATH'));
+  if not LEnv.IsEmpty then
+    Result := LEnv
+  else
+    Result := ExtractFilePath(ParamStr(0)) + '..\DADOS\uploads';
 end;
 
 class function TConstants.JWTSecret: string;

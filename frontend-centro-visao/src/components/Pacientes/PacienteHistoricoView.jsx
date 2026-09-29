@@ -23,6 +23,7 @@ import {
   listarParceriasAgenda,
 } from '../../api/agenda';
 import { adaptPatient, calculateAge, patientPayload } from '../../domain/pacientes';
+import { resolvePhotoUrl } from '../../utils/imageCompressor';
 
 import DadosPessoaisTab from './components/DadosPessoaisTab';
 import HistoricoConsultasTab from './components/HistoricoConsultasTab';
@@ -38,6 +39,16 @@ const EMPTY_FORM = {
   complement: '', city: '', state: '', cep: '', responsibleName: '', responsibleCpf: '', photo: '',
 };
 
+function getInitials(name) {
+  return String(name || '')
+    .trim()
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((part) => part.charAt(0))
+    .join('')
+    .toUpperCase();
+}
+
 export default function PacienteHistoricoView({ 
   patient: initialPatient,
   initialTab = 'pessoais', 
@@ -51,6 +62,11 @@ export default function PacienteHistoricoView({
   const [toast, setToast] = useState(null);
   const [loadingPatient, setLoadingPatient] = useState(true);
   const [patientError, setPatientError] = useState('');
+  const [patientPhotoError, setPatientPhotoError] = useState(false);
+
+  useEffect(() => {
+    setPatientPhotoError(false);
+  }, [patient?.photo]);
 
   const [professionals, setProfessionals] = useState([]);
   const [procedures, setProcedures] = useState([]);
@@ -207,6 +223,22 @@ export default function PacienteHistoricoView({
           >
             <ArrowLeft className="w-4 h-4" />
           </button>
+
+          {/* Avatar com Foto do Paciente */}
+          <div className="w-12 h-12 rounded-xl overflow-hidden border border-slate-200/90 shadow-xs bg-white shrink-0 flex items-center justify-center">
+            {patient?.photo && !patientPhotoError ? (
+              <img
+                src={resolvePhotoUrl(patient.photo)}
+                alt={patient?.name || 'Paciente'}
+                onError={() => setPatientPhotoError(true)}
+                className="w-full h-full object-cover"
+              />
+            ) : (
+              <div className="w-full h-full bg-forest-50 text-forest-800 flex items-center justify-center font-bold text-xs">
+                {getInitials(patient?.name)}
+              </div>
+            )}
+          </div>
 
           <div>
             <div className="flex flex-wrap items-center gap-2">

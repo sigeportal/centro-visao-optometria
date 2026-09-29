@@ -28,6 +28,8 @@ type
     function ListarRetornos(APacienteId: Integer): TJSONArray;
     function ListarFinanceiro(APacienteId: Integer): TJSONArray;
     function ListarDocumentos(APacienteId: Integer): TJSONArray;
+    function ObterFoto(AId: Integer; out ACaminhoCompleto, AMimeType: string): Boolean;
+    function AtualizarFoto(AId: Integer; const AFotoBase64: string): string;
   end;
 
 implementation
@@ -35,10 +37,13 @@ implementation
 uses
   System.DateUtils,
   System.Math,
+  System.StrUtils,
+  System.IOUtils,
   FireDAC.Comp.Client,
   UnitDatabase,
   Models.Clinica,
-  Dataset.JSON.Utils;
+  Dataset.JSON.Utils,
+  Storage.Service;
 
 constructor TPacienteService.Create;
 begin
@@ -137,6 +142,9 @@ end;
 procedure TPacienteService.AplicarDados(APaciente: TObject; AData: TJSONObject; AAtualizacao: Boolean);
 var
   LPaciente: TModelPaciente;
+  LFotoRaw: string;
+  LCaminhoRelativo: string;
+  LMime: string;
 begin
   LPaciente := TModelPaciente(APaciente);
 
@@ -161,7 +169,41 @@ begin
   LPaciente.Cidade := Texto(AData, 'cidade', LPaciente.Cidade);
   LPaciente.Estado := UpperCase(Texto(AData, 'estado', LPaciente.Estado));
   LPaciente.Cep := Texto(AData, 'cep', LPaciente.Cep);
-  LPaciente.Foto := Texto(AData, 'foto', LPaciente.Foto);
+
+  if Assigned(AData.GetValue('foto')) then
+  begin
+    LFotoRaw := Trim(AData.GetValue<string>('foto', ''));
+    if StartsText('data:image', LFotoRaw) or (Length(LFotoRaw) > 255) then
+    begin
+      if LPaciente.Id <= 0 then
+        LPaciente.Id := LPaciente.GeraCodigo('PAC_ID');
+
+      if (LPaciente.Foto <> '') and (not StartsText('http', LPaciente.Foto)) and (not StartsText('/v1/', LPaciente.Foto)) then
+      begin
+        try
+          TStorageService.ExcluirArquivo(LPaciente.Foto);
+        except
+        end;
+      end;
+
+      LMime := '';
+      if TStorageService.SalvarFotoPacienteBase64(LPaciente.Id, LFotoRaw, LMime, LCaminhoRelativo) then
+        LPaciente.Foto := LCaminhoRelativo;
+    end
+    else if LFotoRaw = '' then
+    begin
+      if (LPaciente.Foto <> '') and (not StartsText('http', LPaciente.Foto)) and (not StartsText('/v1/', LPaciente.Foto)) then
+      begin
+        try
+          TStorageService.ExcluirArquivo(LPaciente.Foto);
+        except
+        end;
+      end;
+      LPaciente.Foto := '';
+    end
+    else if not StartsText('/v1/pacientes/', LFotoRaw) then
+      LPaciente.Foto := LFotoRaw;
+  end;
 
   if not AAtualizacao then
   begin
@@ -176,9 +218,12 @@ var
   LConn: TFDConnection;
   LQuery: TFDQuery;
   LItems: TJSONArray;
+  LItem: TJSONObject;
+  LFoto: string;
   LBusca: string;
   LOffset: Integer;
   LTotal: Integer;
+  I: Integer;
 begin
   if APage < 1 then
     APage := 1;
@@ -211,7 +256,7 @@ begin
       LQuery.SQL.Text :=
         Format('SELECT FIRST %d SKIP %d PAC_ID AS ID, PAC_NOME AS NOME, PAC_CPF AS CPF, ', [ALimit, LOffset]) +
         'PAC_CIDADE AS CIDADE, PAC_DATA_NASCIMENTO AS DATA_NASCIMENTO, PAC_CELULAR AS CELULAR, ' +
-        'PAC_EMAIL AS EMAIL, PAC_ATIVO AS ATIVO FROM PACIENTES ' +
+        'PAC_EMAIL AS EMAIL, PAC_FOTO AS FOTO, PAC_ATIVO AS ATIVO FROM PACIENTES ' +
         'WHERE COALESCE(PAC_ATIVO, 1) = 1 ' +
         'AND (:BUSCA_VAZIA = 1 OR UPPER(PAC_NOME) LIKE :BUSCA ' +
         'OR UPPER(PAC_CPF) LIKE :BUSCA OR UPPER(PAC_CIDADE) LIKE :BUSCA) ' +
@@ -220,6 +265,14 @@ begin
       LQuery.ParamByName('BUSCA').AsString := LBusca;
       LQuery.Open;
       LItems := TDatasetJsonUtils.QueryToJSONArray(LQuery);
+
+      for I := 0 to LItems.Count - 1 do
+      begin
+        LItem := TJSONObject(LItems.Items[I]);
+        LFoto := Trim(LItem.GetValue<string>('foto', ''));
+        if (LFoto <> '') and (not StartsText('http', LFoto)) and (not StartsText('/v1/', LFoto)) then
+          LItem.AddPair('foto', Format('/v1/pacientes/%d/foto', [LItem.GetValue<Integer>('id', 0)]));
+      end;
     finally
       LQuery.Free;
     end;
@@ -267,7 +320,14 @@ begin
       Result.AddPair('cidade', LPaciente.Cidade);
       Result.AddPair('estado', LPaciente.Estado);
       Result.AddPair('cep', LPaciente.Cep);
-      Result.AddPair('foto', LPaciente.Foto);
+
+      if Trim(LPaciente.Foto) = '' then
+        Result.AddPair('foto', TJSONNull.Create)
+      else if StartsText('http://', LPaciente.Foto) or StartsText('https://', LPaciente.Foto) or StartsText('/v1/', LPaciente.Foto) then
+        Result.AddPair('foto', LPaciente.Foto)
+      else
+        Result.AddPair('foto', Format('/v1/pacientes/%d/foto', [LPaciente.Id]));
+
       Result.AddPair('ativo', TJSONNumber.Create(LPaciente.Ativo));
       if LPaciente.DataCadastro > 0 then
         Result.AddPair('data_cadastro', DateToISO8601(LPaciente.DataCadastro, False))
@@ -587,6 +647,93 @@ begin
     end;
   finally
     TDatabase.Connection.Disconnected(LIndiceConexao);
+  end;
+end;
+
+function TPacienteService.ObterFoto(AId: Integer; out ACaminhoCompleto, AMimeType: string): Boolean;
+var
+  LPaciente: TModelPaciente;
+  LCaminhoRelativo: string;
+begin
+  Result := False;
+  ACaminhoCompleto := '';
+  AMimeType := 'image/webp';
+  if AId <= 0 then
+    Exit;
+
+  LPaciente := TModelPaciente.Create(TDatabase.Connection);
+  try
+    LPaciente.BuscaDadosTabela(AId);
+    if (LPaciente.Id <= 0) or (Trim(LPaciente.Foto) = '') then
+      Exit;
+
+    LCaminhoRelativo := Trim(LPaciente.Foto);
+    if StartsText('http://', LCaminhoRelativo) or StartsText('https://', LCaminhoRelativo) then
+      Exit;
+
+    try
+      ACaminhoCompleto := TStorageService.ObterCaminhoCompleto(LCaminhoRelativo);
+      if TFile.Exists(ACaminhoCompleto) then
+      begin
+        AMimeType := TStorageService.MimeTypeDoArquivo(ACaminhoCompleto);
+        Result := True;
+      end;
+    except
+      Result := False;
+    end;
+  finally
+    LPaciente.Free;
+  end;
+end;
+
+function TPacienteService.AtualizarFoto(AId: Integer; const AFotoBase64: string): string;
+var
+  LPaciente: TModelPaciente;
+  LCaminhoRelativo: string;
+  LMime: string;
+begin
+  Result := '';
+  if AId <= 0 then
+    raise EPacienteValidacao.Create('Identificador de paciente invalido');
+
+  LPaciente := TModelPaciente.Create(TDatabase.Connection);
+  try
+    LPaciente.BuscaDadosTabela(AId);
+    if LPaciente.Id <= 0 then
+      raise EPacienteValidacao.Create('Paciente nao encontrado');
+
+    if Trim(AFotoBase64) = '' then
+    begin
+      if (LPaciente.Foto <> '') and (not StartsText('http', LPaciente.Foto)) and (not StartsText('/v1/', LPaciente.Foto)) then
+      begin
+        try
+          TStorageService.ExcluirArquivo(LPaciente.Foto);
+        except
+        end;
+      end;
+      LPaciente.Foto := '';
+      LPaciente.SalvaNoBanco(1);
+      Exit;
+    end;
+
+    LMime := '';
+    if TStorageService.SalvarFotoPacienteBase64(AId, AFotoBase64, LMime, LCaminhoRelativo) then
+    begin
+      if (LPaciente.Foto <> '') and (LPaciente.Foto <> LCaminhoRelativo) and
+         (not StartsText('http', LPaciente.Foto)) and (not StartsText('/v1/', LPaciente.Foto)) then
+      begin
+        try
+          TStorageService.ExcluirArquivo(LPaciente.Foto);
+        except
+        end;
+      end;
+
+      LPaciente.Foto := LCaminhoRelativo;
+      LPaciente.SalvaNoBanco(1);
+      Result := Format('/v1/pacientes/%d/foto', [AId]);
+    end;
+  finally
+    LPaciente.Free;
   end;
 end;
 

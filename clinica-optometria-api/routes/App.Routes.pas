@@ -36,12 +36,14 @@ uses
   Auth.Controller;
 
 type
+  {$M+}
   THealthResponse = class
   private
     Fstatus: string;
   published
     property status: string read Fstatus write Fstatus;
   end;
+  {$M-}
 
 class procedure TAppRoutes.Routes;
 begin

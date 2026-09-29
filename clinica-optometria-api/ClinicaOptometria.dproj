@@ -8,7 +8,7 @@
         <AppType>Console</AppType>
         <FrameworkType>None</FrameworkType>
         <ProjectVersion>18.4</ProjectVersion>
-        <Platform Condition="'$(Platform)'==''">Linux64</Platform>
+        <Platform Condition="'$(Platform)'==''">Win32</Platform>
     </PropertyGroup>
     <PropertyGroup Condition="'$(Config)'=='Base' or '$(Base)'!=''">
         <Base>true</Base>
@@ -101,6 +101,7 @@
         <DCCReference Include="Controllers\Autorizacao.Controller.pas"/>
         <DCCReference Include="Controllers\Funcionario.Controller.pas"/>
         <DCCReference Include="Controllers\Catalogo.Controller.pas"/>
+        <DCCReference Include="Controllers\ConfiguracaoClinica.Controller.pas"/>
         <DCCReference Include="Controllers\Agenda.Controller.pas"/>
         <DCCReference Include="Controllers\Consulta.Controller.pas"/>
         <DCCReference Include="Controllers\FichaClinica.Controller.pas"/>
@@ -108,6 +109,7 @@
         <DCCReference Include="Controllers\Paciente.Controller.pas"/>
         <DCCReference Include="services\Agenda.Service.pas"/>
         <DCCReference Include="services\Atendimento.Service.pas"/>
+        <DCCReference Include="services\ConfiguracaoClinica.Service.pas"/>
         <DCCReference Include="services\Consulta.Service.pas"/>
         <DCCReference Include="services\FichaClinica.Service.pas"/>
         <DCCReference Include="services\FichaClinicaDados.Service.pas"/>
@@ -117,10 +119,12 @@
         <DCCReference Include="services\Funcionario.Service.pas"/>
         <DCCReference Include="services\Parceria.Service.pas"/>
         <DCCReference Include="services\Procedimento.Service.pas"/>
+        <DCCReference Include="services\Storage.Service.pas"/>
         <DCCReference Include="Model\Models.Clinica.pas"/>
         <DCCReference Include="Model\UnitAgendamento.Model.pas"/>
         <DCCReference Include="Model\UnitAnamnese.Model.pas"/>
         <DCCReference Include="Model\UnitConsulta.Model.pas"/>
+        <DCCReference Include="Model\UnitConfiguracaoClinica.Model.pas"/>
         <DCCReference Include="Model\UnitDocumentoConsulta.Model.pas"/>
         <DCCReference Include="Model\UnitFichaSecao.Model.pas"/>
         <DCCReference Include="Model\UnitFichaClinicaDados.Model.pas"/>

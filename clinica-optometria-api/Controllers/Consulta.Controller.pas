@@ -40,12 +40,15 @@ type
     class procedure ImpressaoDocumento(Req: THorseRequest; Res: THorseResponse; Next: TProc);
     class procedure ListarAnexos(Req: THorseRequest; Res: THorseResponse; Next: TProc);
     class procedure CriarAnexo(Req: THorseRequest; Res: THorseResponse; Next: TProc);
+    class procedure ObterArquivoDocumento(Req: THorseRequest; Res: THorseResponse; Next: TProc);
   end;
 
 implementation
 
 uses
   System.SysUtils,
+  System.StrUtils,
+  System.IOUtils,
   System.JSON,
   System.DateUtils,
   Horse.Commons,
@@ -56,6 +59,7 @@ uses
   Atendimento.Service,
   FichaClinicaDados.Service,
   Auditoria.Service,
+  Storage.Service,
   Correlation.Middleware,
   Response.Utils,
   Logger.Utils;
@@ -121,6 +125,7 @@ begin
   THorse.Group.Prefix('/v1/consultas').Get('/:id/documentos', AutorizarRota(PERM_CLINICO_CONSULTAR, ListarDocumentos));
   THorse.Group.Prefix('/v1/consultas').Post('/:id/documentos', AutorizarRota(PERM_CLINICO_ALTERAR, CriarDocumento));
   THorse.Group.Prefix('/v1/documentos').Get('/:id', AutorizarRota(PERM_CLINICO_CONSULTAR, ObterDocumento));
+  THorse.Group.Prefix('/v1/documentos').Get('/:id/arquivo', AutorizarRota(PERM_CLINICO_CONSULTAR, ObterArquivoDocumento));
   THorse.Group.Prefix('/v1/documentos').Put('/:id', AutorizarRota(PERM_CLINICO_ALTERAR, AtualizarDocumento));
   THorse.Group.Prefix('/v1/documentos').Post('/:id/emitir', AutorizarRota(PERM_CLINICO_ALTERAR, EmitirDocumento));
   THorse.Group.Prefix('/v1/documentos').Get('/:id/impressao', AutorizarRota(PERM_CLINICO_CONSULTAR, ImpressaoDocumento));
@@ -1078,7 +1083,7 @@ begin
     try
       LId := Service.CriarAnexo(ParamId(Req), UsuarioIdAutenticado(Req),
         Req.Body<TJSONObject>);
-      SendId(Res, 'Link vinculado com sucesso', 'id', LId, THTTPStatus.Created);
+      SendId(Res, 'Anexo vinculado com sucesso', 'id', LId, THTTPStatus.Created);
     except
       on E: EConsultaNaoEncontrada do
         Res.Send<TJSONObject>(TResponseUtils.NotFound(E.Message)).Status(THTTPStatus.NotFound);
@@ -1089,6 +1094,92 @@ begin
         LCorrelationId := ObterCorrelationId(Req);
         TLogger.Error(Format('[%s] %s', [LCorrelationId, 'ConsultaController.CriarAnexo']), E);
         Res.Send<TJSONObject>(TResponseUtils.InternalError('Ocorreu um erro interno ao processar a solicitacao', LCorrelationId)).Status(THTTPStatus.InternalServerError);
+      end;
+    end;
+  finally
+    Service.Free;
+  end;
+end;
+
+class procedure TConsultaController.ObterArquivoDocumento(Req: THorseRequest;
+  Res: THorseResponse; Next: TProc);
+var
+  Service: TConsultaService;
+  LDocId: Integer;
+  LConsultaId: Integer;
+  LNomeArquivo, LCaminhoArquivo, LMimeType: string;
+  LCaminhoCompleto: string;
+  LDownload: Boolean;
+  LCorrelationId: string;
+begin
+  Service := TConsultaService.Create;
+  try
+    try
+      LDocId := ParamId(Req);
+      if LDocId <= 0 then
+        raise EConsultaValidacao.Create('Identificador de documento invalido');
+
+      if not Service.ObterDadosArquivoDocumento(LDocId, LConsultaId, LNomeArquivo, LCaminhoArquivo, LMimeType) then
+        raise EConsultaNaoEncontrada.Create('Documento nao encontrado');
+
+      // Se for link externo, redireciona
+      if StartsText('http://', LCaminhoArquivo) or StartsText('https://', LCaminhoArquivo) then
+      begin
+        Res.RedirectTo(LCaminhoArquivo);
+        Exit;
+      end;
+
+      // Anexo com arquivo em disco
+      try
+        LCaminhoCompleto := TStorageService.ObterCaminhoCompleto(LCaminhoArquivo);
+      except
+        on E: Exception do
+        begin
+          Res.Send<TJSONObject>(TResponseUtils.NotFound('Caminho de arquivo inacessivel'))
+            .Status(THTTPStatus.NotFound);
+          Exit;
+        end;
+      end;
+
+      if not TFile.Exists(LCaminhoCompleto) then
+      begin
+        Res.Send<TJSONObject>(TResponseUtils.NotFound('Arquivo fisico nao encontrado no servidor'))
+          .Status(THTTPStatus.NotFound);
+        Exit;
+      end;
+
+      if LMimeType = '' then
+        LMimeType := TStorageService.MimeTypeDoArquivo(LCaminhoCompleto);
+      if LNomeArquivo = '' then
+        LNomeArquivo := ExtractFileName(LCaminhoCompleto);
+
+      LDownload := Req.Query.Items['download'] = '1';
+      if LDownload then
+      begin
+        Res.Download(LCaminhoCompleto, LMimeType);
+        if LNomeArquivo <> '' then
+          Res.RawWebResponse.SetCustomHeader('Content-Disposition',
+            Format('attachment; filename="%s"', [ExtractFileName(LNomeArquivo)]));
+      end
+      else
+        Res.SendFile(LCaminhoCompleto, LMimeType);
+
+      // Registra auditoria para downloads e acessos
+      TAuditoriaService.Registrar(Req, 'DOWNLOAD', 'CONSULTA', LConsultaId,
+        'Download/Visualizacao de documento anexo: ' + LNomeArquivo);
+    except
+      on E: EConsultaNaoEncontrada do
+        Res.Send<TJSONObject>(TResponseUtils.NotFound(E.Message))
+          .Status(THTTPStatus.NotFound);
+      on E: EConsultaValidacao do
+        Res.Send<TJSONObject>(TResponseUtils.Error(E.Message, 422))
+          .Status(THTTPStatus.UnprocessableEntity);
+      on E: Exception do
+      begin
+        LCorrelationId := ObterCorrelationId(Req);
+        TLogger.Error(Format('[%s] %s', [LCorrelationId, 'ConsultaController.ObterArquivoDocumento']), E);
+        Res.Send<TJSONObject>(TResponseUtils.InternalError('Ocorreu um erro interno ao processar a solicitacao', LCorrelationId))
+          .Status(THTTPStatus.InternalServerError);
       end;
     end;
   finally
@@ -1173,6 +1264,15 @@ initialization
     .Path('documentos/{id}/impressao')
       .Tag('Consultas')
       .GET('Impressao de documento', 'Retorna o documento emitido para impressao HTML').AddResponse(200, 'Dados de impressao').&End.&End
+    .&End
+    .Path('documentos/{id}/arquivo')
+      .Tag('Documentos')
+      .GET('Obter arquivo ou link do documento', 'Retorna o arquivo binario do documento ou redireciona para link externo')
+        .AddParamPath('id', 'Identificador numerico do documento').Required(True).&End
+        .AddParamQuery('download', 'Defina como 1 para forcar download do anexo').&End
+        .AddResponse(200, 'Arquivo servido com sucesso').&End
+        .AddResponse(404, 'Arquivo nao encontrado').&End
+      .&End
     .&End
     .Path('consultas/{id}/anexos')
       .Tag('Anexos')

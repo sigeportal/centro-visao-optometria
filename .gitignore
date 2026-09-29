@@ -38,6 +38,8 @@ __recovery/
 modules/
 **/modules/
 clinica-optometria-api/ClinicaOptometria
+*._@emb_.tmp
+*.tmp
 
 # Logs
 logs/

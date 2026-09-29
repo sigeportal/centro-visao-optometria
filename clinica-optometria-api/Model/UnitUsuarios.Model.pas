@@ -14,6 +14,7 @@ type
     FSenha: string;
     FFuncionario: Integer;
     FAtivo: Integer;
+    FFoto: string;
   public
     [TCampo('USU_CODIGO', 'INTEGER NOT NULL PRIMARY KEY')]
     property Codigo: Integer read FCodigo write FCodigo;
@@ -29,6 +30,9 @@ type
 
     [TCampo('USU_ATIVO', 'SMALLINT DEFAULT 1')]
     property Ativo: Integer read FAtivo write FAtivo;
+
+    [TCampo('USU_FOTO', 'VARCHAR(500)')]
+    property Foto: string read FFoto write FFoto;
   end;
 
 implementation

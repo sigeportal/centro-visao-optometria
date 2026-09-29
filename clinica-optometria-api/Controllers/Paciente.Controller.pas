@@ -19,6 +19,8 @@ type
     class procedure ListarRetornos(Req: THorseRequest; Res: THorseResponse; Next: TProc);
     class procedure ListarFinanceiro(Req: THorseRequest; Res: THorseResponse; Next: TProc);
     class procedure ListarDocumentos(Req: THorseRequest; Res: THorseResponse; Next: TProc);
+    class procedure ObterFoto(Req: THorseRequest; Res: THorseResponse; Next: TProc);
+    class procedure AtualizarFoto(Req: THorseRequest; Res: THorseResponse; Next: TProc);
   end;
 
   TPacienteRequest = class
@@ -87,6 +89,8 @@ begin
   THorse.Group.Prefix('/v1/pacientes').Get('/:id/retornos', AutorizarRota(PERM_CLINICO_CONSULTAR, ListarRetornos));
   THorse.Group.Prefix('/v1/pacientes').Get('/:id/financeiro', AutorizarRota(PERM_FINANCEIRO_CONSULTAR, ListarFinanceiro));
   THorse.Group.Prefix('/v1/pacientes').Get('/:id/documentos', AutorizarRota(PERM_CLINICO_CONSULTAR, ListarDocumentos));
+  THorse.Group.Prefix('/v1/pacientes').Get('/:id/foto', ObterFoto);
+  THorse.Group.Prefix('/v1/pacientes').Post('/:id/foto', AutorizarRota(PERM_PACIENTE_ALTERAR, AtualizarFoto));
 end;
 
 class procedure TPacienteController.Listar(Req: THorseRequest; Res: THorseResponse; Next: TProc);
@@ -430,6 +434,89 @@ begin
     begin
       LCorrelationId := ObterCorrelationId(Req);
       TLogger.Error(Format('[%s] %s', [LCorrelationId, 'PacienteController.ListarDocumentos']), E);
+      Res.Send<TJSONObject>(TResponseUtils.InternalError('Ocorreu um erro interno ao processar a solicitacao', LCorrelationId))
+        .Status(THTTPStatus.InternalServerError);
+    end;
+  end;
+  Service.Free;
+end;
+
+class procedure TPacienteController.ObterFoto(Req: THorseRequest; Res: THorseResponse; Next: TProc);
+var
+  Service: TPacienteService;
+  LId: Integer;
+  LCaminhoCompleto: string;
+  LMimeType: string;
+  LCorrelationId: string;
+begin
+  LCorrelationId := ObterCorrelationId(Req);
+  Service := TPacienteService.Create;
+  try
+    LId := StrToIntDef(Req.Params.Items['id'], 0);
+    if LId <= 0 then
+    begin
+      Res.Send<TJSONObject>(TResponseUtils.Error('ID invalido', 422, LCorrelationId))
+        .Status(THTTPStatus.UnprocessableEntity);
+      Exit;
+    end;
+
+    if Service.ObterFoto(LId, LCaminhoCompleto, LMimeType) then
+      Res.SendFile(LCaminhoCompleto, LMimeType)
+    else
+      Res.Send<TJSONObject>(TResponseUtils.NotFound('Foto do paciente nao encontrada', LCorrelationId))
+        .Status(THTTPStatus.NotFound);
+  except
+    on E: Exception do
+    begin
+      TLogger.Error(Format('[%s] %s', [LCorrelationId, 'PacienteController.ObterFoto']), E);
+      Res.Send<TJSONObject>(TResponseUtils.InternalError('Falha ao carregar foto do paciente', LCorrelationId))
+        .Status(THTTPStatus.InternalServerError);
+    end;
+  end;
+  Service.Free;
+end;
+
+class procedure TPacienteController.AtualizarFoto(Req: THorseRequest; Res: THorseResponse; Next: TProc);
+var
+  Service: TPacienteService;
+  LId: Integer;
+  LBody: TJSONObject;
+  LFotoBase64: string;
+  LFotoURL: string;
+  LResposta: TJSONObject;
+  LCorrelationId: string;
+begin
+  LCorrelationId := ObterCorrelationId(Req);
+  Service := TPacienteService.Create;
+  try
+    LId := StrToIntDef(Req.Params.Items['id'], 0);
+    if LId <= 0 then
+    begin
+      Res.Send<TJSONObject>(TResponseUtils.Error('ID invalido', 422, LCorrelationId))
+        .Status(THTTPStatus.UnprocessableEntity);
+      Exit;
+    end;
+
+    LBody := Req.Body<TJSONObject>;
+    if not Assigned(LBody) then
+      raise EPacienteValidacao.Create('Payload invalido');
+
+    LFotoBase64 := Trim(LBody.GetValue<string>('foto_base64', LBody.GetValue<string>('foto', '')));
+    LFotoURL := Service.AtualizarFoto(LId, LFotoBase64);
+
+    TAuditoriaService.Registrar(Req, 'UPDATE', 'PACIENTE', LId, 'Atualizacao de foto de identificacao do paciente');
+
+    LResposta := TJSONObject.Create;
+    LResposta.AddPair('foto', LFotoURL);
+    Res.Send<TJSONObject>(TResponseUtils.Success('Foto do paciente atualizada com sucesso', LResposta))
+      .Status(THTTPStatus.OK);
+  except
+    on E: EPacienteValidacao do
+      Res.Send<TJSONObject>(TResponseUtils.Error(E.Message, 422, LCorrelationId))
+        .Status(THTTPStatus.UnprocessableEntity);
+    on E: Exception do
+    begin
+      TLogger.Error(Format('[%s] %s', [LCorrelationId, 'PacienteController.AtualizarFoto']), E);
       Res.Send<TJSONObject>(TResponseUtils.InternalError('Ocorreu um erro interno ao processar a solicitacao', LCorrelationId))
         .Status(THTTPStatus.InternalServerError);
     end;

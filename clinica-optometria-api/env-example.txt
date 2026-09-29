@@ -9,3 +9,4 @@ DB_PORT=3050
 DB_NAME=C:\dados\clinica_optometria.fdb
 DB_USER=SYSDBA
 DB_PASS=masterkey
+STORAGE_PATH=..\DADOS\uploads

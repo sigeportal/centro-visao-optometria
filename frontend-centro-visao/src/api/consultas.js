@@ -128,6 +128,69 @@ export async function criarAnexoConsulta(id, payload) {
   return response.data?.data;
 }
 
+export function obterUrlArquivoDocumento(id, download = false) {
+  const baseURL = (api.defaults.baseURL || import.meta.env.VITE_API_URL || 'http://localhost:9000').replace(/\/+$/, '');
+  const params = new URLSearchParams();
+  if (download) params.set('download', '1');
+  const token = localStorage.getItem('co_token');
+  if (token) params.set('token', token);
+  const qs = params.toString();
+  return `${baseURL}/v1/documentos/${id}/arquivo${qs ? `?${qs}` : ''}`;
+}
+
+export async function baixarArquivoDocumento(id, nomeArquivo) {
+  try {
+    const response = await api.get(`/v1/documentos/${id}/arquivo`, {
+      params: { download: 1 },
+      responseType: 'blob',
+    });
+    const blob = response.data instanceof Blob ? response.data : new Blob([response.data]);
+    const blobUrl = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = blobUrl;
+    link.download = nomeArquivo || `documento-${id}`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    window.setTimeout(() => window.URL.revokeObjectURL(blobUrl), 10000);
+    return true;
+  } catch (error) {
+    if (error.response?.data instanceof Blob && error.response.data.type?.includes('application/json')) {
+      const text = await error.response.data.text();
+      try {
+        error.response.data = JSON.parse(text);
+      } catch {
+        // ignore parse error
+      }
+    }
+    throw error;
+  }
+}
+
+export async function visualizarArquivoDocumento(id) {
+  try {
+    const response = await api.get(`/v1/documentos/${id}/arquivo`, {
+      responseType: 'blob',
+    });
+    const contentType = response.headers?.['content-type'] || 'application/pdf';
+    const blob = response.data instanceof Blob ? response.data : new Blob([response.data], { type: contentType });
+    const url = window.URL.createObjectURL(blob);
+    window.open(url, '_blank');
+    window.setTimeout(() => window.URL.revokeObjectURL(url), 60000);
+    return url;
+  } catch (error) {
+    if (error.response?.data instanceof Blob && error.response.data.type?.includes('application/json')) {
+      const text = await error.response.data.text();
+      try {
+        error.response.data = JSON.parse(text);
+      } catch {
+        // ignore parse error
+      }
+    }
+    throw error;
+  }
+}
+
 export async function atualizarAnexoConsulta(id, payload) {
   const response = await api.put(`/v1/documentos/${id}`, { tipo: 'anexo', ...payload });
   return response.data?.data;

@@ -1,6 +1,17 @@
-import React from 'react';
-import { Save } from 'lucide-react';
+import React, { useState, useRef, useEffect } from 'react';
+import { Camera, Loader2, Save, Trash2, User } from 'lucide-react';
 import { calculateAge, maskCPF, maskRG, maskPhone } from '../../../utils/formatters';
+import { compressImage, formatFileSize, resolvePhotoUrl } from '../../../utils/imageCompressor';
+
+function getInitials(name) {
+  return String(name || '')
+    .trim()
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((part) => part.charAt(0))
+    .join('')
+    .toUpperCase();
+}
 
 export default function DadosPessoaisTab({
   formData,
@@ -10,6 +21,57 @@ export default function DadosPessoaisTab({
   onSave
 }) {
   const currentAge = calculateAge(formData.birthDate);
+  const [compressing, setCompressing] = useState(false);
+  const [photoSizeInfo, setPhotoSizeInfo] = useState('');
+  const [error, setError] = useState('');
+  const [imgError, setImgError] = useState(false);
+  const fileInputRef = useRef(null);
+
+  useEffect(() => {
+    setImgError(false);
+  }, [formData.photo]);
+
+  const handlePhotoChange = async (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    if (!file.type.startsWith('image/')) {
+      setError('Por favor, selecione um arquivo de imagem válido (JPG, PNG, WEBP).');
+      return;
+    }
+
+    setCompressing(true);
+    setError('');
+
+    try {
+      const compressed = await compressImage(file, {
+        maxSize: 400,
+        quality: 0.85,
+        preferredMimeType: 'image/webp',
+      });
+      setFormData({
+        ...formData,
+        photo: compressed.dataUrl,
+        foto: compressed.dataUrl,
+      });
+      setPhotoSizeInfo(`Foto otimizada: ${formatFileSize(compressed.sizeBytes)}`);
+    } catch (err) {
+      setError(err?.message || 'Falha ao comprimir imagem do paciente.');
+    } finally {
+      setCompressing(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
+
+  const handleRemovePhoto = () => {
+    setFormData({
+      ...formData,
+      photo: '',
+      foto: '',
+    });
+    setPhotoSizeInfo('');
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
 
   return (
     <div className="clinical-panel p-5 sm:p-6 space-y-5 animate-fade-in">
@@ -63,6 +125,94 @@ export default function DadosPessoaisTab({
           <span className="font-bold text-[10.5px] uppercase text-forest-800 tracking-wider block mb-3">
             1. Identificação do Paciente
           </span>
+
+          {/* Avatar do Paciente */}
+          <div className="flex flex-col sm:flex-row items-center sm:items-start gap-4 p-4 rounded-xl bg-slate-50/80 border border-slate-200/80 mb-4">
+            <div className="w-20 h-20 sm:w-24 sm:h-24 rounded-2xl overflow-hidden border-2 border-slate-200 bg-white shadow-xs flex items-center justify-center shrink-0">
+              {formData.photo && !imgError ? (
+                <img
+                  src={resolvePhotoUrl(formData.photo)}
+                  alt={formData.name || 'Paciente'}
+                  onError={() => setImgError(true)}
+                  className="w-full h-full object-cover"
+                />
+              ) : (
+                <div className="w-full h-full flex flex-col items-center justify-center text-forest-800 bg-forest-50/70 font-bold">
+                  {formData.name ? (
+                    <span className="text-xl">{getInitials(formData.name)}</span>
+                  ) : (
+                    <User className="w-8 h-8 text-forest-600/70" />
+                  )}
+                </div>
+              )}
+            </div>
+
+            <div className="flex-1 space-y-1.5 text-center sm:text-left">
+              <div>
+                <span className="text-xs font-bold text-slate-800 block">Foto de Identificação</span>
+                <p className="text-[11px] text-slate-400">
+                  Foto do paciente para o prontuário e ficha clínica de optometria.
+                </p>
+              </div>
+
+              {compressing && (
+                <div className="flex items-center gap-1.5 text-forest-700 text-[11px] font-medium justify-center sm:justify-start">
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  <span>Otimizando e comprimindo imagem...</span>
+                </div>
+              )}
+
+              {photoSizeInfo && (
+                <span className="inline-block text-[10.5px] font-bold text-emerald-800 bg-emerald-50 px-2.5 py-0.5 rounded-md border border-emerald-200">
+                  ✓ {photoSizeInfo}
+                </span>
+              )}
+
+              {error && (
+                <span className="inline-block text-[11px] text-rose-600 font-semibold">
+                  {error}
+                </span>
+              )}
+
+              {isEditing ? (
+                <div className="flex flex-wrap items-center gap-2 justify-center sm:justify-start pt-1">
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp,image/jpg"
+                    className="hidden"
+                    onChange={handlePhotoChange}
+                  />
+                  <button
+                    type="button"
+                    disabled={compressing}
+                    onClick={() => fileInputRef.current?.click()}
+                    className="btn-secondary !py-1.5 !px-2.5 !text-xs flex items-center gap-1.5 font-semibold"
+                  >
+                    <Camera className="w-3.5 h-3.5 text-forest-700" />
+                    <span>{formData.photo ? 'Alterar Foto' : 'Adicionar Foto'}</span>
+                  </button>
+
+                  {formData.photo && (
+                    <button
+                      type="button"
+                      disabled={compressing}
+                      onClick={handleRemovePhoto}
+                      className="btn-secondary !py-1.5 !px-2.5 !text-xs !text-rose-700 hover:!bg-rose-50 hover:!border-rose-300 flex items-center gap-1 font-semibold"
+                    >
+                      <Trash2 className="w-3.5 h-3.5 text-rose-600" />
+                      <span>Remover Foto</span>
+                    </button>
+                  )}
+                </div>
+              ) : (
+                <p className="text-[10.5px] text-slate-400 italic">
+                  Clique em &quot;Editar Cadastro&quot; para alterar ou remover a foto do paciente.
+                </p>
+              )}
+            </div>
+          </div>
+
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3.5">
             <div className="sm:col-span-2">
               <label className="clinical-label">

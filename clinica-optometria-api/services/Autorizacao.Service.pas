@@ -50,6 +50,8 @@ type
     class procedure DefinirAtivo(AUsuarioId: Integer; AAtivo: Boolean;
       AExecutorId: Integer);
     class procedure DefinirPerfil(AUsuarioId: Integer; const APerfil: string);
+    class procedure AtualizarFotoUsuario(AUsuarioId: Integer; const AFotoPathOuUrl: string);
+    class function ObterFotoUsuario(AUsuarioId: Integer): string;
   end;
 
 implementation
@@ -57,11 +59,31 @@ implementation
 uses
   Data.DB,
   FireDAC.Comp.Client,
+  FireDAC.Stan.Param,
   System.Hash,
+  System.StrUtils,
   UnitConnection.Model.Interfaces,
   UnitDatabase,
   Security.Password,
   UnitUsuarioPerfil.Model;
+
+procedure GarantirCampoUsuario(const ACampo, ATipo: string);
+var
+  LQuery: iQuery;
+begin
+  LQuery := TDatabase.Query;
+  LQuery.Clear;
+  LQuery.Add('SELECT COUNT(*) AS TOTAL FROM RDB$RELATION_FIELDS ');
+  LQuery.Add('WHERE TRIM(RDB$RELATION_NAME) = ''USUARIOS'' ');
+  LQuery.Add('AND TRIM(RDB$FIELD_NAME) = ' + QuotedStr(UpperCase(Trim(ACampo))));
+  LQuery.Open;
+  if LQuery.DataSet.FieldByName('TOTAL').AsInteger = 0 then
+  begin
+    LQuery.Clear;
+    LQuery.Add(Format('ALTER TABLE USUARIOS ADD %s %s', [Trim(ACampo), Trim(ATipo)]));
+    LQuery.ExecSQL;
+  end;
+end;
 
 procedure AdicionarPermissao(ALista: TJSONArray; const APermissao: string);
 begin
@@ -108,19 +130,10 @@ begin
     LPerfil.Free;
   end;
 
-  LQuery := TDatabase.Query;
-  LQuery.Clear;
-  LQuery.Add('SELECT COUNT(*) AS TOTAL FROM RDB$RELATION_FIELDS ');
-  LQuery.Add('WHERE TRIM(RDB$RELATION_NAME) = ''USUARIOS'' ');
-  LQuery.Add('AND TRIM(RDB$FIELD_NAME) = ''USU_ATIVO''');
-  LQuery.Open;
-  if LQuery.DataSet.FieldByName('TOTAL').AsInteger = 0 then
-  begin
-    LQuery.Clear;
-    LQuery.Add('ALTER TABLE USUARIOS ADD USU_ATIVO SMALLINT DEFAULT 1 NOT NULL');
-    LQuery.ExecSQL;
-  end;
+  GarantirCampoUsuario('USU_ATIVO', 'SMALLINT DEFAULT 1 NOT NULL');
+  GarantirCampoUsuario('USU_FOTO', 'VARCHAR(500)');
 
+  LQuery := TDatabase.Query;
   LQuery.Clear;
   LQuery.Add('UPDATE USUARIOS SET USU_ATIVO = 1 WHERE USU_ATIVO IS NULL');
   LQuery.ExecSQL;
@@ -273,13 +286,14 @@ class function TAutorizacaoService.SessaoUsuario(AUsuarioId: Integer): TJSONObje
 var
   LQuery: iQuery;
   LPerfil: string;
+  LFoto: string;
 begin
   if AUsuarioId <= 0 then
     raise EAutorizacaoValidacao.Create('Usuario invalido');
 
   LQuery := TDatabase.Query;
   LQuery.Clear;
-  LQuery.Add('SELECT U.USU_CODIGO, U.USU_LOGIN, U.USU_FUN, U.USU_ATIVO, F.FUN_NOME ');
+  LQuery.Add('SELECT U.USU_CODIGO, U.USU_LOGIN, U.USU_FUN, U.USU_ATIVO, U.USU_FOTO, F.FUN_NOME ');
   LQuery.Add('FROM USUARIOS U LEFT JOIN FUNCIONARIOS F ON F.FUN_CODIGO = U.USU_FUN ');
   LQuery.Add('WHERE U.USU_CODIGO = :USUARIO_ID');
   LQuery.AddParam('USUARIO_ID', AUsuarioId);
@@ -290,12 +304,22 @@ begin
     raise EAutorizacaoInativa.Create('Usuario inativo');
 
   LPerfil := PerfilUsuario(AUsuarioId);
+  LFoto := Trim(LQuery.DataSet.FieldByName('USU_FOTO').AsString);
+
   Result := TJSONObject.Create;
   Result.AddPair('user_id', TJSONNumber.Create(AUsuarioId));
   Result.AddPair('username', LQuery.DataSet.FieldByName('USU_LOGIN').AsString);
   Result.AddPair('funcionario_id', TJSONNumber.Create(LQuery.DataSet.FieldByName('USU_FUN').AsInteger));
   Result.AddPair('funcionario', LQuery.DataSet.FieldByName('FUN_NOME').AsString);
   Result.AddPair('ativo', TJSONBool.Create(True));
+
+  if LFoto = '' then
+    Result.AddPair('foto', TJSONNull.Create)
+  else if StartsText('http://', LFoto) or StartsText('https://', LFoto) or StartsText('/v1/', LFoto) then
+    Result.AddPair('foto', LFoto)
+  else
+    Result.AddPair('foto', Format('/v1/usuarios/%d/foto', [AUsuarioId]));
+
   if LPerfil = '' then
     Result.AddPair('perfil', TJSONNull.Create)
   else
@@ -308,11 +332,13 @@ var
   LQuery: iQuery;
   LItem: TJSONObject;
   LPerfil: string;
+  LFoto: string;
+  LUserId: Integer;
 begin
   Result := TJSONArray.Create;
   LQuery := TDatabase.Query;
   LQuery.Clear;
-  LQuery.Add('SELECT U.USU_CODIGO, U.USU_LOGIN, U.USU_FUN, U.USU_ATIVO, F.FUN_NOME, P.UPR_PERFIL ');
+  LQuery.Add('SELECT U.USU_CODIGO, U.USU_LOGIN, U.USU_FUN, U.USU_ATIVO, U.USU_FOTO, F.FUN_NOME, P.UPR_PERFIL ');
   LQuery.Add('FROM USUARIOS U ');
   LQuery.Add('LEFT JOIN FUNCIONARIOS F ON F.FUN_CODIGO = U.USU_FUN ');
   LQuery.Add('LEFT JOIN USUARIO_PERFIL P ON P.UPR_USUARIO_ID = U.USU_CODIGO AND P.UPR_ATIVO = 1 ');
@@ -321,14 +347,25 @@ begin
 
   while not LQuery.DataSet.Eof do
   begin
+    LUserId := LQuery.DataSet.FieldByName('USU_CODIGO').AsInteger;
     LPerfil := LowerCase(Trim(LQuery.DataSet.FieldByName('UPR_PERFIL').AsString));
+    LFoto := Trim(LQuery.DataSet.FieldByName('USU_FOTO').AsString);
+
     LItem := TJSONObject.Create;
-    LItem.AddPair('user_id', TJSONNumber.Create(LQuery.DataSet.FieldByName('USU_CODIGO').AsInteger));
+    LItem.AddPair('user_id', TJSONNumber.Create(LUserId));
     LItem.AddPair('username', LQuery.DataSet.FieldByName('USU_LOGIN').AsString);
     LItem.AddPair('funcionario_id', TJSONNumber.Create(LQuery.DataSet.FieldByName('USU_FUN').AsInteger));
     LItem.AddPair('funcionario', LQuery.DataSet.FieldByName('FUN_NOME').AsString);
     LItem.AddPair('ativo', TJSONBool.Create(
       LQuery.DataSet.FieldByName('USU_ATIVO').AsInteger = 1));
+
+    if LFoto = '' then
+      LItem.AddPair('foto', TJSONNull.Create)
+    else if StartsText('http://', LFoto) or StartsText('https://', LFoto) or StartsText('/v1/', LFoto) then
+      LItem.AddPair('foto', LFoto)
+    else
+      LItem.AddPair('foto', Format('/v1/usuarios/%d/foto', [LUserId]));
+
     if LPerfil = '' then
       LItem.AddPair('perfil', TJSONNull.Create)
     else
@@ -669,6 +706,46 @@ begin
   finally
     LPerfil.Free;
   end;
+end;
+
+class procedure TAutorizacaoService.AtualizarFotoUsuario(AUsuarioId: Integer;
+  const AFotoPathOuUrl: string);
+var
+  LQuery: iQuery;
+begin
+  if AUsuarioId <= 0 then
+    raise EAutorizacaoValidacao.Create('Identificador de usuario invalido');
+
+  LQuery := TDatabase.Query;
+  LQuery.Clear;
+  LQuery.Add('SELECT COUNT(*) AS TOTAL FROM USUARIOS WHERE USU_CODIGO = :ID');
+  LQuery.AddParam('ID', AUsuarioId);
+  LQuery.Open;
+  if LQuery.DataSet.FieldByName('TOTAL').AsInteger = 0 then
+    raise EAutorizacaoNaoEncontrada.Create('Usuario nao encontrado');
+
+  LQuery.Clear;
+  LQuery.Add('UPDATE USUARIOS SET USU_FOTO = :FOTO WHERE USU_CODIGO = :ID');
+  LQuery.AddParam('FOTO', AFotoPathOuUrl);
+  LQuery.AddParam('ID', AUsuarioId);
+  LQuery.ExecSQL;
+end;
+
+class function TAutorizacaoService.ObterFotoUsuario(AUsuarioId: Integer): string;
+var
+  LQuery: iQuery;
+begin
+  Result := '';
+  if AUsuarioId <= 0 then
+    Exit;
+
+  LQuery := TDatabase.Query;
+  LQuery.Clear;
+  LQuery.Add('SELECT USU_FOTO FROM USUARIOS WHERE USU_CODIGO = :ID');
+  LQuery.AddParam('ID', AUsuarioId);
+  LQuery.Open;
+  if not LQuery.DataSet.IsEmpty then
+    Result := Trim(LQuery.DataSet.FieldByName('USU_FOTO').AsString);
 end;
 
 end.

@@ -1,22 +1,37 @@
-import { useState } from 'react';
-import { CalendarPlus, Check, Loader2, User, X } from 'lucide-react';
+import { useState, useRef } from 'react';
+import { CalendarPlus, Camera, Check, Loader2, Trash2, User, X } from 'lucide-react';
 import { criarPaciente, obterPaciente } from '../../api/pacientes';
 import { adaptPatient, calculateAge, patientPayload } from '../../domain/pacientes';
 import { maskCPF, maskPhone } from '../../utils/formatters';
+import { compressImage, formatFileSize } from '../../utils/imageCompressor';
 
 const INITIAL_FORM = {
   name: '', socialName: '', birthDate: '', gender: '', phone: '', cpf: '',
   address: '', city: '', state: '', responsibleName: '', responsibleCpf: '',
+  photo: '',
 };
 
 function errorMessage(error) {
   return error?.response?.data?.error?.message || error?.message || 'Não foi possível cadastrar o paciente.';
 }
 
+function getInitials(name) {
+  return String(name || '')
+    .trim()
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((part) => part.charAt(0))
+    .join('')
+    .toUpperCase();
+}
+
 export default function NovoPacienteModal({ isOpen, onClose, onSaveAndAttend }) {
   const [form, setForm] = useState(INITIAL_FORM);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [photoCompressing, setPhotoCompressing] = useState(false);
+  const [photoSizeInfo, setPhotoSizeInfo] = useState('');
+  const fileInputRef = useRef(null);
 
   if (!isOpen) return null;
 
@@ -24,10 +39,46 @@ export default function NovoPacienteModal({ isOpen, onClose, onSaveAndAttend }) 
   const updateField = (field, value) => setForm((current) => ({ ...current, [field]: value }));
 
   const closeModal = () => {
-    if (saving) return;
+    if (saving || photoCompressing) return;
     setForm(INITIAL_FORM);
     setError('');
+    setPhotoSizeInfo('');
+    setPhotoCompressing(false);
     onClose();
+  };
+
+  const handlePhotoChange = async (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    if (!file.type.startsWith('image/')) {
+      setError('Por favor, selecione um arquivo de imagem válido (JPG, PNG, WEBP).');
+      return;
+    }
+
+    setPhotoCompressing(true);
+    setError('');
+
+    try {
+      const compressed = await compressImage(file, {
+        maxSize: 400,
+        quality: 0.85,
+        preferredMimeType: 'image/webp',
+      });
+      updateField('photo', compressed.dataUrl);
+      setPhotoSizeInfo(`Foto otimizada: ${formatFileSize(compressed.sizeBytes)}`);
+    } catch (err) {
+      setError(err?.message || 'Falha ao comprimir imagem do paciente.');
+    } finally {
+      setPhotoCompressing(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
+
+  const handleRemovePhoto = () => {
+    updateField('photo', '');
+    setPhotoSizeInfo('');
+    if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
   const handleSave = async (scheduleNow = false) => {
@@ -39,6 +90,7 @@ export default function NovoPacienteModal({ isOpen, onClose, onSaveAndAttend }) 
       const patient = adaptPatient(await obterPaciente(created.id));
       if (!patient) throw new Error('O paciente foi criado, mas não pôde ser carregado.');
       setForm(INITIAL_FORM);
+      setPhotoSizeInfo('');
       onSaveAndAttend(patient, scheduleNow);
     } catch (requestError) {
       setError(errorMessage(requestError));
@@ -64,7 +116,7 @@ export default function NovoPacienteModal({ isOpen, onClose, onSaveAndAttend }) 
           <button
             type="button"
             onClick={closeModal}
-            disabled={saving}
+            disabled={saving || photoCompressing}
             className="p-1.5 rounded-lg hover:bg-white/10 text-forest-200/70 hover:text-white transition-colors"
             title="Fechar"
           >
@@ -72,12 +124,87 @@ export default function NovoPacienteModal({ isOpen, onClose, onSaveAndAttend }) 
           </button>
         </div>
 
-        <div className="p-5 sm:p-6 space-y-3.5 overflow-y-auto flex-1 text-xs">
+        <div className="p-5 sm:p-6 space-y-4 overflow-y-auto flex-1 text-xs">
           {error && (
             <div className="bg-rose-50 border border-rose-200 rounded-xl p-3 text-xs text-rose-900 font-semibold shadow-hairline" role="alert">
               {error}
             </div>
           )}
+
+          {/* Seção Avatar do Paciente */}
+          <div className="flex flex-col sm:flex-row items-center sm:items-start gap-4 p-3.5 rounded-xl bg-slate-50 border border-slate-200/80">
+            <div className="w-18 h-18 sm:w-20 sm:h-20 rounded-2xl overflow-hidden border-2 border-slate-200 bg-white shadow-xs flex items-center justify-center shrink-0">
+              {form.photo ? (
+                <img
+                  src={form.photo}
+                  alt={form.name || 'Paciente'}
+                  className="w-full h-full object-cover"
+                />
+              ) : (
+                <div className="w-full h-full flex flex-col items-center justify-center text-forest-800 bg-forest-50/70 font-bold">
+                  {form.name ? (
+                    <span className="text-base">{getInitials(form.name)}</span>
+                  ) : (
+                    <User className="w-7 h-7 text-forest-600/70" />
+                  )}
+                </div>
+              )}
+            </div>
+
+            <div className="flex-1 space-y-1.5 text-center sm:text-left">
+              <div>
+                <span className="text-xs font-bold text-slate-800 block">Foto do Paciente</span>
+                <p className="text-[11px] text-slate-500">
+                  Adicione uma foto de identificação para o prontuário clínico (comprimida automaticamente para WebP leve).
+                </p>
+              </div>
+
+              {photoCompressing && (
+                <div className="flex items-center gap-1.5 text-forest-700 text-[11px] font-medium justify-center sm:justify-start">
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  <span>Comprimindo imagem...</span>
+                </div>
+              )}
+
+              {photoSizeInfo && (
+                <span className="inline-block text-[10.5px] font-bold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">
+                  ✓ {photoSizeInfo}
+                </span>
+              )}
+
+              <div className="flex flex-wrap items-center gap-2 justify-center sm:justify-start pt-1">
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp,image/jpg"
+                  className="hidden"
+                  onChange={handlePhotoChange}
+                />
+                <button
+                  type="button"
+                  disabled={saving || photoCompressing}
+                  onClick={() => fileInputRef.current?.click()}
+                  className="btn-secondary !py-1.5 !px-2.5 !text-xs flex items-center gap-1.5 font-semibold"
+                >
+                  <Camera className="w-3.5 h-3.5 text-forest-700" />
+                  <span>{form.photo ? 'Alterar Foto' : 'Adicionar Foto'}</span>
+                </button>
+
+                {form.photo && (
+                  <button
+                    type="button"
+                    disabled={saving || photoCompressing}
+                    onClick={handleRemovePhoto}
+                    className="btn-secondary !py-1.5 !px-2.5 !text-xs !text-rose-700 hover:!bg-rose-50 hover:!border-rose-300 flex items-center gap-1 font-semibold"
+                  >
+                    <Trash2 className="w-3.5 h-3.5 text-rose-600" />
+                    <span>Remover</span>
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+
           <div>
             <label className="clinical-label">
               Nome Completo <span className="text-rose-600">*</span>
@@ -221,7 +348,7 @@ export default function NovoPacienteModal({ isOpen, onClose, onSaveAndAttend }) 
           <button
             type="button"
             onClick={closeModal}
-            disabled={saving}
+            disabled={saving || photoCompressing}
             className="btn-secondary"
           >
             Cancelar
@@ -229,7 +356,7 @@ export default function NovoPacienteModal({ isOpen, onClose, onSaveAndAttend }) 
           <div className="flex flex-col-reverse sm:flex-row gap-2">
             <button
               type="button"
-              disabled={!isFormValid || saving}
+              disabled={!isFormValid || saving || photoCompressing}
               onClick={() => handleSave(true)}
               className="btn-accent"
             >
@@ -238,7 +365,7 @@ export default function NovoPacienteModal({ isOpen, onClose, onSaveAndAttend }) 
             </button>
             <button
               type="button"
-              disabled={!isFormValid || saving}
+              disabled={!isFormValid || saving || photoCompressing}
               onClick={() => handleSave(false)}
               className="btn-primary"
             >

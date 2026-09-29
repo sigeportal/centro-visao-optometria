@@ -8,9 +8,20 @@ import { useAuth } from '../../context/AuthContext';
 import { PERMISSIONS } from '../../constants/permissions';
 import RegistrarConsultaRetroativaModal from './components/RegistrarConsultaRetroativaModal';
 import ToastNotification from '../Common/ToastNotification';
+import { resolvePhotoUrl } from '../../utils/imageCompressor';
 
 function errorMessage(error) {
   return error?.response?.data?.error?.message || error?.message || 'Não foi possível carregar os pacientes.';
+}
+
+function getInitials(name) {
+  return String(name || '')
+    .trim()
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((part) => part.charAt(0))
+    .join('')
+    .toUpperCase();
 }
 
 export default function PacientesView({ openNovoPaciente, setSelectedPatient, setActiveModule }) {
@@ -153,8 +164,26 @@ export default function PacientesView({ openNovoPaciente, setSelectedPatient, se
               <tr key={patient.id} className="hover:bg-forest-50/20 transition-colors">
                 <td className="py-3.5 px-4 font-mono font-bold text-slate-400">#{patient.id}</td>
                 <td className="py-3.5 px-4">
-                  <div className="font-bold text-slate-900">{patient.name}</div>
-                  <span className="text-[10.5px] text-slate-400 font-mono">CPF: {formatCPF(patient.cpf) || 'Não informado'}</span>
+                  <div className="flex items-center space-x-2.5">
+                    <div className="w-8 h-8 rounded-lg overflow-hidden border border-slate-200/90 shadow-xs bg-white shrink-0 flex items-center justify-center">
+                      {patient.photo ? (
+                        <img
+                          src={resolvePhotoUrl(patient.photo)}
+                          alt={patient.name}
+                          onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                          className="w-full h-full object-cover"
+                        />
+                      ) : (
+                        <div className="w-full h-full bg-forest-50 text-forest-800 flex items-center justify-center font-bold text-[10.5px]">
+                          {getInitials(patient.name)}
+                        </div>
+                      )}
+                    </div>
+                    <div>
+                      <div className="font-bold text-slate-900">{patient.name}</div>
+                      <span className="text-[10.5px] text-slate-400 font-mono">CPF: {formatCPF(patient.cpf) || 'Não informado'}</span>
+                    </div>
+                  </div>
                 </td>
                 <td className="py-3.5 px-4 text-slate-700">
                   <div className="font-semibold text-slate-800">{formatPhone(patient.phone) || 'Telefone não informado'}</div>
